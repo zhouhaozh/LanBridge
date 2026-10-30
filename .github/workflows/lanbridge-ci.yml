@@ -1,0 +1,131 @@
+# SPDX-FileCopyrightText: (C) 2026 LanBridge contributors
+# SPDX-License-Identifier: MIT
+
+name: LanBridge CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.runner }}
+    container: ${{ matrix.platform.container }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - id: linux
+            name: Linux x86_64
+            runner: ubuntu-24.04
+            container: debian:trixie-slim
+          - id: macos
+            name: macOS arm64
+            runner: macos-15
+            container: ""
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      # 在 checkout 前安装 Git，确保取得真实 Git 历史与版本标签。
+      - name: 安装 Linux 依赖
+        if: runner.os == 'Linux'
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git build-essential cmake ninja-build pkgconf \
+            libssl-dev qt6-base-dev qt6-tools-dev qt6-translations-l10n \
+            libx11-dev libxtst-dev libxkbfile-dev libxrandr-dev libxinerama-dev \
+            libxi-dev libxext-dev libsm-dev libice-dev \
+            libxkbcommon-dev libxkbregistry-dev libei-dev libportal-dev \
+            python3 bash coreutils tar gzip util-linux shellcheck fonts-dejavu-core
+
+      - name: 检出源码与版本标签
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: 安装 macOS 依赖
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install cmake ninja qtbase qttools qttranslations openssl@3
+          {
+            echo "$(brew --prefix qtbase)/bin"
+            echo "$(brew --prefix qttools)/bin"
+          } >> "$GITHUB_PATH"
+
+      - name: 检查脚本并运行打包工具测试
+        run: |
+          mkdir -p build/ci
+          for task_script in deploy/lanbridge/*.sh deploy/lanbridge/*.sh.in; do
+            bash -n "$task_script"
+          done
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            shellcheck deploy/lanbridge/*.sh deploy/lanbridge/*.sh.in
+          fi
+          python3 -m unittest discover -s deploy/lanbridge/tests -p 'test_*.py' -v \
+            2>&1 | tee build/ci/python-tests.log
+
+      - name: 配置 Release 构建
+        run: |
+          task_cmake_args=()
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            task_cmake_args+=(
+              -DCMAKE_OSX_ARCHITECTURES=arm64
+              "-DCMAKE_PREFIX_PATH=$(brew --prefix)"
+              "-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)"
+              -DBUILD_OSX_BUNDLE=ON
+            )
+          else
+            task_cmake_args+=(-DBUILD_X11_SUPPORT=ON)
+          fi
+          cmake -S . -B build/ci -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=ON \
+            -DSKIP_BUILD_TESTS=ON \
+            -DBUILD_INSTALLER=OFF \
+            "${task_cmake_args[@]}" 2>&1 | tee build/ci/configure.log
+
+      - name: 编译应用与测试程序
+        run: cmake --build build/ci --parallel 2 2>&1 | tee build/ci/build.log
+
+      - name: 运行非交互 CTest
+        run: |
+          ctest --test-dir build/ci/src/unittests \
+            -LE interactive --output-on-failure --no-tests=error --timeout 120 \
+            --output-junit "$GITHUB_WORKSPACE/build/ci/ctest-results.xml" \
+            2>&1 | tee build/ci/ctest.log
+
+      - name: 保存构建与测试日志
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ci-${{ matrix.platform.id }}-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            build/ci/*.log
+            build/ci/ctest-results.xml
+            build/ci/CMakeFiles/CMakeConfigureLog.yaml
+            build/ci/src/unittests/Testing/Temporary/LastTest.log

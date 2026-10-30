@@ -125,6 +125,16 @@ ctest --test-dir build/dev/src/unittests -LE interactive --output-on-failure --n
 
 ## 测试与验证
 
+### GitHub Actions 自动检查
+
+推送 `main` 时，[LanBridge CI](https://github.com/zhouhaozh/LanBridge/actions/workflows/lanbridge-ci.yml) 自动并行执行 Linux x86_64 和 macOS arm64 的 Release 编译、非交互 CTest、打包脚本语法检查及 Python 回归测试，也可从 Actions 页面手动运行。
+
+Linux 使用 `ubuntu-24.04` 运行器中的 Debian 13（Trixie）容器，以满足 Qt、libei 和 libportal 的最低版本要求；macOS 使用标准 Apple Silicon `macos-15` 运行器和 Homebrew 依赖。测试失败或未发现 CTest 测试时，检查会失败。Linux 执行全部离线安装器回归测试；macOS 按既有规则跳过 Linux 专用测试。
+
+构建和测试日志、CTest JUnit 报告保留为 Actions 附件 7 天，源码仓库不包含这些生成文件。此流程只编译和测试；原上游 `Continuous Integration` 工作流继续停用，不执行上游安装包发布。
+
+### 本地验证
+
 非交互 C++ / Qt 测试覆盖输入状态、事件队列、连接与协议、剪贴板、配置、诊断和自启逻辑。使用前述 CTest 命令执行。
 
 打包工具的 Python 回归测试可单独运行：
