@@ -285,6 +285,7 @@ void ServerProxyTests::handleKeepAliveAlarm_timeout_queuesDisconnectRequest()
   QCOMPARE(events.addedEvents().size(), static_cast<size_t>(1));
   const auto &event = events.addedEvents().front();
   QVERIFY(event.getType() == EventTypes::ClientDisconnectRequested);
+  QVERIFY(event.getFlags() & Event::EventFlags::DeliverImmediately);
   QCOMPARE(event.getTarget(), stream.getEventTarget());
 
   const auto *request = disconnectRequest(events);
@@ -326,6 +327,29 @@ void ServerProxyTests::parseHandshakeMessage_protocolError_queuesRefusalRequest(
   QVERIFY(request->kind() == Client::DisconnectRequest::Kind::Refuse);
   QVERIFY(request->refusalReason() == deskflow::core::ConnectionRefusal::ProtocolError);
   QCOMPARE(QString::fromUtf8(request->message()), QStringLiteral("server reported a protocol error"));
+  stream.push(std::string(kMsgCNoop, 4));
+  QVERIFY(events.dispatchEvent(Event(EventTypes::StreamInputReady, stream.getEventTarget())));
+  QCOMPARE(stream.getSize(), uint32_t(4));
+}
+
+void ServerProxyTests::handleData_largeBatchYieldsToTimers()
+{
+  RecordingEventQueue events;
+  FakeStream stream;
+  for (int i = 0; i < 70; ++i)
+    stream.push(std::string(kMsgCNoop, 4));
+  ServerProxy proxy(undereferenceableClient(), &stream, &events);
+  QVERIFY(events.dispatchEvent(Event(EventTypes::StreamInputReady, stream.getEventTarget())));
+  QVERIFY(stream.isReady());
+  QVERIFY(stream.getSize() >= 6 * 4);
+  QCOMPARE(events.addedEvents().size(), size_t(1));
+  QCOMPARE(events.addedEvents().front().getType(), EventTypes::StreamInputReady);
+  QVERIFY(!(events.addedEvents().front().getFlags() & Event::EventFlags::DeliverImmediately));
+  // A due alarm wins before the continuation; pending input is never injected.
+  QVERIFY(events.dispatchEvent(Event(EventTypes::Timer, events.timer())));
+  const auto remaining = stream.getSize();
+  QVERIFY(events.dispatchEvent(Event(EventTypes::StreamInputReady, stream.getEventTarget())));
+  QCOMPARE(stream.getSize(), remaining);
 }
 
 QTEST_MAIN(ServerProxyTests)

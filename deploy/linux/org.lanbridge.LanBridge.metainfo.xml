@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-FileCopyrightText: (C) 2026 LanBridge contributors -->
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<component type="desktop-application">
+  <id>org.lanbridge.LanBridge</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-only</project_license>
+  <name>LanBridge</name>
+  <summary>Share a keyboard and mouse between Linux and macOS</summary>
+  <summary xml:lang="zh_CN">在 Linux 与 Mac 之间共享键盘和鼠标</summary>
+  <description>
+    <p>LanBridge is a local Deskflow derivative for sharing keyboard and mouse input over an encrypted local network connection.</p>
+    <p xml:lang="zh_CN">LanBridge 基于 Deskflow，通过加密的局域网连接共享 Linux 与 Mac 的键盘和鼠标，提供中文设置、紧急返回和故障恢复。</p>
+  </description>
+  <launchable type="desktop-id">org.lanbridge.LanBridge.desktop</launchable>
+  <provides><binary>deskflow</binary></provides>
+  <content_rating type="oars-1.1"/>
+  <releases><release version="1.27.0" date="2026-10-22"/></releases>
+</component>

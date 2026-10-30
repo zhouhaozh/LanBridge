@@ -13,6 +13,9 @@ private Q_SLOTS:
   // Test are run in order top to bottom
   void initTestCase();
   void basicFunctionality();
+  void lanBridgeLayout_data();
+  void lanBridgeLayout();
+  void layoutPreservesModifiers();
 
 private:
   inline static const QString m_settingsPath = QStringLiteral("tmp/test");

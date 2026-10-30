@@ -8,6 +8,7 @@
 #include "CoreProcess.h"
 
 #include "common/ExitCodes.h"
+#include "common/RemoteInputSession.h"
 #include "gui/ipc/CoreIpcClient.h"
 #include "gui/ipc/DaemonIpcClient.h"
 
@@ -178,6 +179,14 @@ void CoreProcess::onProcessFinished(int exitCode, QProcess::ExitStatus)
   if (m_retryTimer.isActive()) {
     m_retryTimer.stop();
   }
+
+#ifdef Q_OS_MACOS
+  if (deskflow::RemoteInputSession::recoveryRequired()) {
+    setProcessState(Stopped);
+    Q_EMIT error(Error::RecoveryRequired);
+    return;
+  }
+#endif
 
   if (exitCode != s_exitSuccess) {
     setProcessState(Stopped);
@@ -380,6 +389,21 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
     qCritical("not starting core process, already started");
     return;
   }
+
+  if (m_processState == ProcessState::Starting || m_processState == ProcessState::Stopping) {
+    qWarning("core transition in progress, ignoring start");
+    return;
+  }
+
+#ifdef Q_OS_MACOS
+  if (deskflow::RemoteInputSession::recoveryRequired()) {
+    m_retryTimer.stop();
+    setProcessState(ProcessState::Stopped);
+    setConnectionState(ConnectionState::Disconnected);
+    Q_EMIT error(Error::RecoveryRequired);
+    return;
+  }
+#endif
 
   if (m_mode == Settings::CoreMode::None) {
     qCritical("not starting core process, no core mode set");

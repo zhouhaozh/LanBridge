@@ -33,14 +33,21 @@ ClientConfigDialog::~ClientConfigDialog()
 void ClientConfigDialog::changeEvent(QEvent *e)
 {
   QDialog::changeEvent(e);
-  if (e->type() == QEvent::LanguageChange)
+  if (e->type() == QEvent::LanguageChange) {
     ui->retranslateUi(this);
+    updateControls();
+  }
 }
 
 void ClientConfigDialog::updateControls() const
 {
   const auto writable = Settings::isWritable();
-  ui->cbDynamicConnectTime->setEnabled(writable);
+  ui->cbDynamicConnectTime->setChecked(false);
+  ui->cbDynamicConnectTime->setEnabled(false);
+  ui->cbDynamicConnectTime->setText(QStringLiteral("本版每 1 秒重试连接（固定间隔）"));
+  ui->cbDynamicConnectTime->setToolTip(QStringLiteral("恢复连接使用固定 1 秒间隔；需要本地恢复或证书变化时暂停。"));
+  ui->lblScrollSpeed->setText(QStringLiteral("速度倍率"));
+  ui->lblXScrollSpeed->setText(QStringLiteral("速度倍率"));
   ui->cbLanguageSync->setEnabled(writable);
   ui->cbXScrollInvert->setEnabled(writable);
   ui->sbXScrollScale->setEnabled(writable);

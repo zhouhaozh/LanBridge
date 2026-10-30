@@ -78,6 +78,8 @@ public:
   //@}
 
   // IKeyState overrides
+  void fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang) override;
+  bool fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang) override;
   bool fakeCtrlAltDel() override;
   bool fakeMediaKey(KeyID id) override;
   KeyModifierMask pollActiveModifiers() const override;
@@ -85,11 +87,17 @@ public:
   void pollPressedKeys(KeyButtonSet &pressedKeys) const override;
 
   CGEventFlags getModifierStateAsOSXFlags() const;
+  bool nativeInjectionFailed() const
+  {
+    return m_nativeInjectionFailed;
+  }
 
 protected:
   // KeyState overrides
   void getKeyMap(deskflow::KeyMap &keyMap) override;
   void fakeKey(const Keystroke &keystroke) override;
+  virtual CGEventRef createKeyboardEvent(CGKeyCode key, bool down);
+  void postKeyboardKey(CGKeyCode virtualKey, bool keyDown);
 
 private:
   class KeyResource;
@@ -138,9 +146,9 @@ private:
 
   void setKeyboardModifiers(CGKeyCode virtualKey, bool keyDown);
 
-  void postKeyboardKey(CGKeyCode virtualKey, bool keyDown);
-
 private:
+  // Sticky for this receiver lifetime: a failed release cannot be certified by a reconnect.
+  bool m_nativeInjectionFailed = false;
   // OS X uses a physical key if 0 for the 'A' key.  deskflow reserves
   // KeyButton 0 so we offset all OS X physical key ids by this much
   // when used as a KeyButton and by minus this much to map a KeyButton

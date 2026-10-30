@@ -88,7 +88,7 @@ private:
   void handleData();
   ConnectionResult handleMessage(const uint8_t *code);
   void handleKeepAliveAlarm();
-  void requestDisconnect(const char *message);
+  void requestDisconnect(const char *message, bool immediate = false);
   void requestRefuseConnection(deskflow::core::ConnectionRefusal reason, const char *message);
 
   // message handlers
@@ -118,12 +118,15 @@ private:
 
   bool m_compressMouse = false;
   bool m_compressMouseRelative = false;
+  uint64_t m_compressedMouseTimestamp = 0;
+  uint64_t m_compressedRelativeTimestamp = 0;
   int32_t m_xMouse = 0;
   int32_t m_yMouse = 0;
   int32_t m_dxMouse = 0;
   int32_t m_dyMouse = 0;
 
   bool m_ignoreMouse = false;
+  bool m_disconnectRequested = false;
 
   KeyModifierID m_modifierTranslationTable[kKeyModifierIDLast];
 

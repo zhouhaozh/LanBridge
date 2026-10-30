@@ -20,6 +20,7 @@
 #include "deskflow/StreamChunker.h"
 #include "io/IStream.h"
 
+#include <chrono>
 #include <cstring>
 
 //
@@ -78,6 +79,10 @@ void ServerProxy::setKeepAliveRate(double rate)
 
 void ServerProxy::handleData()
 {
+  if (m_disconnectRequested)
+    return;
+  const auto started = std::chrono::steady_clock::now();
+  size_t handled = 0;
   // handle messages until there are no more.  first read message code.
   uint8_t code[4];
   uint32_t n = m_stream->read(code, 4);
@@ -90,6 +95,7 @@ void ServerProxy::handleData()
     }
 
     // parse message
+    deskflow::InputDiagnostics::ReceiveScope timing(m_stream->lastReadTimestamp());
     LOG_VERBOSE("msg from server: %c%c%c%c", code[0], code[1], code[2], code[3]);
     try {
       switch ((this->*m_parser)(code)) {
@@ -99,11 +105,8 @@ void ServerProxy::handleData()
 
       case Unknown:
         LOG_ERR("invalid message from server: %c%c%c%c", code[0], code[1], code[2], code[3]);
-        // not possible to determine message boundaries
-        // read the whole stream to discard unkonwn data
-        while (m_stream->read(nullptr, 4))
-          ;
-        break;
+        requestDisconnect("invalid message from server");
+        return;
 
       case Disconnect:
         return;
@@ -116,10 +119,14 @@ void ServerProxy::handleData()
     }
 
     // next message
+    if (++handled >= 64 || std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(2))
+      break;
     n = m_stream->read(code, 4);
   }
 
   flushCompressedMouse();
+  if (m_stream->isReady())
+    m_events->addEvent(Event(EventTypes::StreamInputReady, m_stream->getEventTarget()));
 }
 
 ServerProxy::ConnectionResult ServerProxy::parseHandshakeMessage(const uint8_t *code)
@@ -327,19 +334,25 @@ ServerProxy::ConnectionResult ServerProxy::parseMessage(const uint8_t *code)
 void ServerProxy::handleKeepAliveAlarm()
 {
   LOG_INFO("server is dead");
-  requestDisconnect("server is not responding");
+  // This timer handler has no parser frame to return to. Synchronous cleanup
+  // prevents queued input from delaying release after the deadline.
+  requestDisconnect("server is not responding", true);
 }
 
-void ServerProxy::requestDisconnect(const char *message)
+void ServerProxy::requestDisconnect(const char *message, bool immediate)
 {
-  m_events->addEvent(Event(
-      EventTypes::ClientDisconnectRequested, m_stream->getEventTarget(),
-      new Client::DisconnectRequest(Client::DisconnectRequest::Kind::Disconnect, message)
-  ));
+  m_disconnectRequested = true;
+  Event event(
+      EventTypes::ClientDisconnectRequested, m_stream->getEventTarget(), static_cast<void *>(nullptr),
+      immediate ? Event::EventFlags::DeliverImmediately : Event::EventFlags::NoFlags
+  );
+  event.setDataObject(new Client::DisconnectRequest(Client::DisconnectRequest::Kind::Disconnect, message));
+  m_events->addEvent(std::move(event));
 }
 
 void ServerProxy::requestRefuseConnection(deskflow::core::ConnectionRefusal reason, const char *message)
 {
+  m_disconnectRequested = true;
   m_events->addEvent(Event(
       EventTypes::ClientDisconnectRequested, m_stream->getEventTarget(), new Client::DisconnectRequest(reason, message)
   ));
@@ -374,11 +387,15 @@ void ServerProxy::flushCompressedMouse()
 {
   if (m_compressMouse) {
     m_compressMouse = false;
+    deskflow::InputDiagnostics::ReceiveScope timing(m_compressedMouseTimestamp);
     m_client->mouseMove(m_xMouse, m_yMouse);
+    m_compressedMouseTimestamp = 0;
   }
   if (m_compressMouseRelative) {
     m_compressMouseRelative = false;
+    deskflow::InputDiagnostics::ReceiveScope timing(m_compressedRelativeTimestamp);
     m_client->mouseRelativeMove(m_dxMouse, m_dyMouse);
+    m_compressedRelativeTimestamp = 0;
     m_dxMouse = 0;
     m_dyMouse = 0;
   }
@@ -662,11 +679,14 @@ void ServerProxy::mouseMove()
   // compress mouse motion events if more input follows
   if (!ignore && !m_compressMouse && m_stream->isReady()) {
     m_compressMouse = true;
+    m_compressedMouseTimestamp = deskflow::InputDiagnostics::receiveOrigin();
   }
 
   // if compressing then ignore the motion but record it
   if (m_compressMouse) {
+    deskflow::InputDiagnostics::coalesced();
     m_compressMouseRelative = false;
+    m_compressedRelativeTimestamp = 0;
     ignore = true;
     m_xMouse = x;
     m_yMouse = y;
@@ -695,10 +715,12 @@ void ServerProxy::mouseRelativeMove()
   // compress mouse motion events if more input follows
   if (!ignore && !m_compressMouseRelative && m_stream->isReady()) {
     m_compressMouseRelative = true;
+    m_compressedRelativeTimestamp = deskflow::InputDiagnostics::receiveOrigin();
   }
 
   // if compressing then ignore the motion but record it
   if (m_compressMouseRelative) {
+    deskflow::InputDiagnostics::coalesced();
     ignore = true;
     m_dxMouse += dx;
     m_dyMouse += dy;

@@ -26,6 +26,10 @@
 #endif
 
 class QAction;
+class QCheckBox;
+class QComboBox;
+class QLabel;
+class QPushButton;
 class QMenu;
 class QLocalServer;
 
@@ -35,6 +39,10 @@ class StatusBar;
 
 namespace Ui {
 class MainWindow;
+}
+
+namespace deskflow::gui {
+class StartupManager;
 }
 
 namespace deskflow::gui::ipc {
@@ -132,6 +140,12 @@ private:
   void showConfigureClient();
   void restoreWindow();
   void setupControls();
+  void setupLanBridgeControls();
+  void updateLanBridgeStatus();
+  void acknowledgeInputRecovery();
+  void showLanBridgeHelp();
+  void showDiagnosticsReport();
+  bool inputRecoveryRequired() const;
   void showFirstConnectedMessage();
   void updateStatus();
   void showAndActivate();
@@ -177,10 +191,21 @@ private:
   bool m_serverConfigDialogVisible = false;
   QSize m_expandedSize = QSize();
   QStringList m_checkedClients;
+  QStringList m_connectedClients;
   QStringList m_checkedServers;
   QSystemTrayIcon *m_trayIcon = nullptr;
   QLocalServer *m_guiDupeChecker = nullptr;
   deskflow::gui::ipc::DaemonIpcClient *m_daemonIpcClient = nullptr;
+
+  QComboBox *m_macPosition = nullptr;
+  QCheckBox *m_diagnostics = nullptr;
+  QCheckBox *m_clipboardSharing = nullptr;
+  QCheckBox *m_loginStartup = nullptr;
+  QLabel *m_lanBridgeStatus = nullptr;
+  QLabel *m_permissionStatus = nullptr;
+  QLabel *m_startupStatus = nullptr;
+  QPushButton *m_recoveryButton = nullptr;
+  deskflow::gui::StartupManager *m_startupManager = nullptr;
 
   LogDock *m_logDock;
   StatusBar *m_statusBar = nullptr;

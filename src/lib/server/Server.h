@@ -358,6 +358,7 @@ private:
 
   // force the cursor off of \p client
   void forceLeaveClient(const BaseClientProxy *client);
+  void returnToPrimary();
 
 private:
   class ClipboardInfo
@@ -399,7 +400,7 @@ private:
   deskflow::Computer *m_computer;
 
   IEventQueue *m_events = nullptr;
-  size_t m_maximumClipboardSize = INT_MAX;
+  size_t m_maximumClipboardSize = 0;
   ClientListener *m_clientListener = nullptr;
   Stopwatch m_switchTwoTapTimer;
 
@@ -467,5 +468,5 @@ private:
 
   bool m_defaultLockToComputerState = false;
   bool m_disableLockToComputer = false;
-  bool m_enableClipboard = true;
+  bool m_enableClipboard = false;
 };

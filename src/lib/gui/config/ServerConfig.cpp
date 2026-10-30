@@ -135,6 +135,56 @@ void ServerConfig::recall()
   settings().endArray();
 
   settings().endGroup();
+  if (numComputers == 0 && Settings::value(Settings::Core::CoreMode).toInt() == Settings::Server)
+    configureLanBridge(Settings::value(Settings::LanBridge::MacPosition).toString());
+}
+
+void ServerConfig::configureLanBridge(const QString &macPosition)
+{
+  // Keep existing key mappings when only the relative screen position changes.
+  Computer linuxComputer(QStringLiteral("linux"));
+  Computer macComputer(QStringLiteral("mac"));
+  for (const auto &computer : std::as_const(m_computers)) {
+    if (computer.name() == linuxComputer.name())
+      linuxComputer = computer;
+    else if (computer.name() == macComputer.name())
+      macComputer = computer;
+  }
+  const auto existingHotkeys = m_Hotkeys;
+  // Keep upstream's grid and serialization so the advanced screen editor remains usable.
+  m_columns = kServerGridWidth;
+  m_rows = kServerGridHeight;
+  Settings::setValue(Settings::Server::GridWidth, m_columns);
+  Settings::setValue(Settings::Server::GridHeight, m_rows);
+  setupComputers();
+  const int primary = (m_rows / 2) * m_columns + m_columns / 2;
+  int offset = 1;
+  if (macPosition == QStringLiteral("left"))
+    offset = -1;
+  else if (macPosition == QStringLiteral("up"))
+    offset = -m_columns;
+  else if (macPosition == QStringLiteral("down"))
+    offset = m_columns;
+  m_computers[primary] = linuxComputer;
+  m_computers[primary].markAsServer();
+  m_computers[primary + offset] = macComputer;
+
+  KeySequence sequence;
+  sequence.appendKey(Qt::Key_Control, Qt::ControlModifier);
+  sequence.appendKey(Qt::Key_Alt, Qt::ControlModifier | Qt::AltModifier);
+  sequence.appendKey(Qt::Key_Escape, Qt::ControlModifier | Qt::AltModifier);
+  for (const auto &hotkey : existingHotkeys) {
+    if (hotkey.keySequence().toString() != sequence.toString())
+      m_Hotkeys.append(hotkey);
+  }
+  Hotkey emergencyReturn;
+  emergencyReturn.setKeySequence(sequence);
+  Action returnToLinux;
+  returnToLinux.setType(static_cast<int>(Action::Type::switchToComputer));
+  returnToLinux.setSwitchComputerName(QStringLiteral("linux"));
+  returnToLinux.setRestartServer(false);
+  emergencyReturn.addAction(returnToLinux);
+  m_Hotkeys.append(emergencyReturn);
 }
 
 int ServerConfig::adjacentComputerIndex(int idx, int deltaColumn, int deltaRow) const

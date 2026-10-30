@@ -11,7 +11,7 @@ const auto kAppName = "@CMAKE_PROJECT_PROPER_NAME@";
 const auto kAppId = "@CMAKE_PROJECT_NAME@";
 const auto kAppDescription = "@CMAKE_PROJECT_DESCRIPTION@";
 const auto kDaemonBinName = "@CMAKE_PROJECT_NAME@-daemon";
-const auto kDaemonIpcName = "@CMAKE_PROJECT_NAME@-daemon";
+const auto kDaemonIpcName = "@CMAKE_PROJECT_REV_FQDN@-daemon";
 const auto kRevFqdnName = "@CMAKE_PROJECT_REV_FQDN@";
 
 const auto kCopyright = //
@@ -21,7 +21,7 @@ const auto kCopyright = //
     "Copyright (C) 2002-2009 Chris Schoeneman";
 
 const auto kCoreBinName = "@CORE_BINARY@";
-const auto kCoreIpcName = "@CMAKE_PROJECT_NAME@-core";
+const auto kCoreIpcName = "@CMAKE_PROJECT_REV_FQDN@-core";
 
 const auto kServerGridHeight = 3;
 const auto kServerGridWidth = 5;

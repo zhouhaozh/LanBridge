@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 version = 1
-SPDX-PackageName = "deskflow"
-SPDX-PackageSupplier = "Deskflow Devs"
-SPDX-PackageDownloadLocation = "https://github.com/deskflow/deskflow"
+SPDX-PackageName = "LanBridge"
+SPDX-PackageSupplier = "LanBridge contributors"
+SPDX-PackageDownloadLocation = "https://github.com/zhouhaozh/LanBridge"
 
 [[annotations]]
 path = [

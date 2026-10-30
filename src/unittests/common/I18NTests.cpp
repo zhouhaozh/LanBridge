@@ -10,7 +10,9 @@
 #include "common/Settings.h"
 #include <QDir>
 #include <QFile>
+#include <QLibraryInfo>
 #include <QSignalSpy>
+#include <QTranslator>
 
 void I18NTests::initTestCase()
 {
@@ -35,6 +37,23 @@ void I18NTests::initTestCase()
     QFile::copy(QStringLiteral("%1/%2").arg(srcTDir, file), QStringLiteral("%1/%2").arg(m_myTDir, file));
     QVERIFY(QFile::exists(QStringLiteral("%1/%2").arg(m_myTDir, file)));
   }
+}
+
+void I18NTests::qtLibraryTranslationsTest()
+{
+  // Only application catalogs were copied above, so Qt must find its own
+  // installation's catalogs rather than a bundled Qt translation.
+  QVERIFY(QDir(m_myTDir).entryList({QStringLiteral("qt_*.qm")}, QDir::Files).isEmpty());
+  const auto qtTrPath = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+  QTranslator reference;
+  QVERIFY2(reference.load(QLocale(QStringLiteral("zh_CN")), QStringLiteral("qt"), QStringLiteral("_"), qtTrPath),
+           qPrintable(qtTrPath));
+  const auto expected = reference.translate("QPlatformTheme", "Cancel");
+  QVERIFY(!expected.isEmpty());
+  QVERIFY(expected != QStringLiteral("Cancel"));
+
+  I18N::setLanguage(QStringLiteral("zh_CN"));
+  QCOMPARE(QCoreApplication::translate("QPlatformTheme", "Cancel"), expected);
 }
 
 void I18NTests::creationTest()

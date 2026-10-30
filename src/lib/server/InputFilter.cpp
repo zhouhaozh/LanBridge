@@ -756,6 +756,16 @@ const InputFilter::Action &InputFilter::Rule::getAction(bool onActivation, uint3
 // -----------------------------------------------------------------------------
 // Input Filter Class
 // -----------------------------------------------------------------------------
+namespace {
+constexpr auto emergencyModifiers = KeyModifierControl | KeyModifierAlt;
+
+bool isReservedEmergencyRule(const InputFilter::Rule &rule)
+{
+  const auto *condition = dynamic_cast<const InputFilter::KeystrokeCondition *>(rule.getCondition());
+  return condition != nullptr && condition->getKey() == kKeyEscape && condition->getMask() == emergencyModifiers;
+}
+} // namespace
+
 InputFilter::InputFilter(IEventQueue *events) : m_events(events)
 {
   // do nothing
@@ -787,7 +797,7 @@ InputFilter &InputFilter::operator=(const InputFilter &x)
 void InputFilter::addFilterRule(const Rule &rule)
 {
   m_ruleList.push_back(rule);
-  if (m_primaryClient != nullptr) {
+  if (m_primaryClient != nullptr && !isReservedEmergencyRule(m_ruleList.back())) {
     m_ruleList.back().enable(m_primaryClient);
   }
 }
@@ -806,8 +816,12 @@ void InputFilter::setPrimaryClient(PrimaryClient *client)
   using enum EventTypes;
   if (m_primaryClient != nullptr) {
     for (auto rule = m_ruleList.begin(); rule != m_ruleList.end(); ++rule) {
-      rule->disable(m_primaryClient);
+      if (!isReservedEmergencyRule(*rule))
+        rule->disable(m_primaryClient);
     }
+    if (m_emergencyHotkeyId != 0)
+      m_primaryClient->unregisterHotKey(m_emergencyHotkeyId);
+    m_emergencyHotkeyId = 0;
 
     m_events->removeHandler(KeyStateKeyDown, m_primaryClient->getEventTarget());
     m_events->removeHandler(KeyStateKeyUp, m_primaryClient->getEventTarget());
@@ -841,8 +855,15 @@ void InputFilter::setPrimaryClient(PrimaryClient *client)
     });
     m_events->addHandler(ServerConnected, m_primaryClient->getEventTarget(), [this](const auto &e) { handleEvent(e); });
 
+    // Reserve this native chord independently of editable configuration.
+    // X11 lets a later registration replace the key-to-ID mapping, so never
+    // register configurable rules for this same chord (including on reload).
+    m_emergencyHotkeyId = m_primaryClient->registerHotKey(kKeyEscape, emergencyModifiers);
+    if (m_emergencyHotkeyId == 0)
+      LOG_WARN("could not register Ctrl+Alt+Esc globally; raw captured input remains protected");
     for (auto rule = m_ruleList.begin(); rule != m_ruleList.end(); ++rule) {
-      rule->enable(m_primaryClient);
+      if (!isReservedEmergencyRule(*rule))
+        rule->enable(m_primaryClient);
     }
   }
 }
@@ -887,6 +908,32 @@ bool InputFilter::operator==(const InputFilter &x) const
 
 void InputFilter::handleEvent(const Event &event)
 {
+  // Dispatch emergency return before configurable actions can consume or
+  // redirect the native hotkey. Swallow release too: a conflicting rule may
+  // otherwise switch straight back to the remote computer on key-up.
+  const auto type = event.getType();
+  bool emergencyDown = false;
+  if (m_emergencyHotkeyId != 0 &&
+      (type == EventTypes::PrimaryComputerHotkeyDown || type == EventTypes::PrimaryComputerHotkeyUp)) {
+    const auto *info = static_cast<IPrimaryComputer::HotKeyInfo *>(event.getData());
+    if (info->m_id == m_emergencyHotkeyId) {
+      if (type == EventTypes::PrimaryComputerHotkeyUp)
+        return;
+      emergencyDown = true;
+    }
+  } else if (type == EventTypes::KeyStateKeyDown) {
+    const auto *info = static_cast<IKeyState::KeyInfo *>(event.getData());
+    emergencyDown = info->m_key == kKeyEscape && (info->m_mask & emergencyModifiers) == emergencyModifiers;
+  }
+  if (emergencyDown && m_primaryClient != nullptr) {
+    Server::SwitchToComputerInfo info(m_primaryClient->getName());
+    m_events->addEvent(Event(
+        EventTypes::ServerSwitchToComputer, this, &info,
+        Event::EventFlags::DontFreeData | Event::EventFlags::DeliverImmediately
+    ));
+    return;
+  }
+
   // copy event and adjust target
   Event myEvent(
       event.getType(), this, event.getData(),

@@ -457,7 +457,9 @@ void ServerConfigDialog::refreshControls()
   ui->cbDefaultLockToComputerState->setChecked(m_defaultLockToComputerState);
   ui->cbDisableLockToComputer->setChecked(m_disableLockToComputer);
   ui->cbEnableClipboard->setChecked(m_enableClipboard);
-  ui->sbClipboardSizeLimit->setEnabled(m_enableClipboard);
+  ui->cbEnableClipboard->setEnabled(Settings::isWritable());
+  ui->cbEnableClipboard->setText(QStringLiteral("共享剪贴板"));
+  ui->sbClipboardSizeLimit->setEnabled(Settings::isWritable() && m_enableClipboard);
   ui->sbClipboardSizeLimit->setValue(m_clipboardSize);
 }
 
@@ -525,7 +527,7 @@ void ServerConfigDialog::updateControls() const
   ui->cbDefaultLockToComputerState->setEnabled(writable);
   ui->cbDisableLockToComputer->setEnabled(writable);
   ui->cbEnableClipboard->setEnabled(writable);
-  ui->sbClipboardSizeLimit->setEnabled(writable);
+  ui->sbClipboardSizeLimit->setEnabled(writable && m_enableClipboard);
   ui->rbProtocolBarrier->setEnabled(writable);
   ui->rbProtocolSynergy->setEnabled(writable);
   ui->cbHeartbeat->setEnabled(writable);

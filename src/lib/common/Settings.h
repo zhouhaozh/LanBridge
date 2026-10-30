@@ -86,6 +86,12 @@ public:
     inline static const auto ShowVersionInTitle = QStringLiteral("gui/showVersionInTitle");
     inline static const auto IgnoreMissingKeyboardLayouts = QStringLiteral("gui/ignoreMissingKeyboardLayouts");
   };
+  struct LanBridge
+  {
+    inline static const auto SetupComplete = QStringLiteral("lanbridge/setupComplete");
+    inline static const auto MacPosition = QStringLiteral("lanbridge/macPosition");
+    inline static const auto DiagnosticsEnabled = QStringLiteral("lanbridge/diagnosticsEnabled");
+  };
   struct Log
   {
     inline static const auto File = QStringLiteral("log/file");
@@ -267,6 +273,7 @@ private:
     , QStringLiteral("daemon")
     , QStringLiteral("gui")
     , QStringLiteral("log")
+    , QStringLiteral("lanbridge")
     , QStringLiteral("security")
     , QStringLiteral("server")
     , QStringLiteral("internalConfig")
@@ -298,6 +305,9 @@ private:
     , Daemon::Elevate
     , Daemon::LogFile
     , Daemon::LogLevel
+    , LanBridge::SetupComplete
+    , LanBridge::MacPosition
+    , LanBridge::DiagnosticsEnabled
     , Log::File
     , Log::Level
     , Log::ToFile
@@ -340,6 +350,10 @@ private:
   // When checking the default values this list contains the ones that default to false.
   inline static const QStringList m_defaultFalseValues = {
       Gui::Autohide
+    , Gui::CloseToTray
+    , Gui::AutoUpdateCheck
+    , LanBridge::SetupComplete
+    , LanBridge::DiagnosticsEnabled
     , Gui::AutoStartCore
     , Gui::ShownFirstConnectedMessage
     , Gui::ShownServerFirstStartMessage
@@ -357,7 +371,6 @@ private:
     , Log::GuiDebug
     , Server::DefaultLockToComputerState
     , Server::DisableLockToComputer
-    , Server::EnableHeartbeat
     , Server::EnableSwitchDelay
     , Server::EnableSwitchDoubleTap
     , Server::ExternalConfig
@@ -368,13 +381,13 @@ private:
   // When checking the default values this list contains the ones that default to true.
   inline static const QStringList m_defaultTrueValues = {
       Core::UseHooks
-    , Gui::CloseToTray
     , Gui::CloseReminder
     , Gui::LogExpanded
     , Gui::SymbolicTrayIcon
     , Security::TlsEnabled
     , Security::CheckPeers
     , Server::EnableClipboard
+    , Server::EnableHeartbeat
     , Server::Win32KeepForeground
   };
 

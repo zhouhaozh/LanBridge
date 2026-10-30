@@ -365,6 +365,10 @@ bool Server::isLockedToComputerServer() const
 
 bool Server::isLockedToComputer() const
 {
+  // Drag protection is independent of the optional Scroll Lock feature.
+  if (m_primaryClient->isLockedToComputer()) {
+    return true;
+  }
   if (m_disableLockToComputer) {
     return false;
   }
@@ -374,11 +378,6 @@ bool Server::isLockedToComputer() const
     if (!m_defaultLockToComputerState) {
       LOG_INFO("cursor is locked to computer, check scroll lock key");
     }
-    return true;
-  }
-
-  // locked if primary says we're locked
-  if (m_primaryClient->isLockedToComputer()) {
     return true;
   }
 
@@ -1057,6 +1056,8 @@ void Server::sendOptions(BaseClientProxy *client) const
     // convert options to a more convenient form for sending
     optionsList.reserve(2 * options->size());
     for (auto [optionId, optionValue] : *options) {
+      if (optionId == kOptionHeartbeat)
+        continue;
       optionsList.push_back(optionId);
       optionsList.push_back(static_cast<uint32_t>(optionValue));
     }
@@ -1068,10 +1069,15 @@ void Server::sendOptions(BaseClientProxy *client) const
     // convert options to a more convenient form for sending
     optionsList.reserve(optionsList.size() + 2 * options->size());
     for (auto [optionId, optionValue] : *options) {
+      if (optionId == kOptionHeartbeat)
+        continue;
       optionsList.push_back(optionId);
       optionsList.push_back(static_cast<uint32_t>(optionValue));
     }
   }
+
+  // Keep the one-second heartbeat even for external configuration files.
+  optionsList.insert(optionsList.end(), {kOptionHeartbeat, 1000});
 
   // send the options
   client->resetOptions();
@@ -1108,17 +1114,14 @@ void Server::processOptions()
     } else if (id == kOptionDisableLockToComputer) {
       m_disableLockToComputer = (value != 0);
     } else if (id == kOptionClipboardSharing) {
-      m_enableClipboard = value;
+      m_enableClipboard = (value != 0);
       if (!m_enableClipboard) {
         LOG_INFO("clipboard sharing is disabled");
       }
     } else if (id == kOptionClipboardSharingSize) {
       if (value <= 0) {
         m_maximumClipboardSize = 0;
-        LOG_INFO(
-            "clipboard sharing is disabled because the "
-            "maximum shared clipboard size is set to 0"
-        );
+        LOG_INFO("clipboard sharing is disabled because the maximum shared clipboard size is set to 0");
       } else {
         m_maximumClipboardSize = static_cast<size_t>(value);
       }
@@ -1275,6 +1278,9 @@ void Server::handleWheelEvent(const Event &event)
 
 void Server::handleSwitchWaitTimeout()
 {
+  // The destination may have disconnected after this timer event was queued.
+  if (m_switchComputer == nullptr)
+    return;
   // ignore if mouse is locked to computer
   if (isLockedToComputer()) {
     LOG_VERBOSE("locked to computer");
@@ -1317,6 +1323,8 @@ void Server::handleSwitchToComputerEvent(const Event &event)
   ClientList::const_iterator index = m_clients.find(info->m_computer);
   if (index == m_clients.end()) {
     LOG_VERBOSE("computer \"%s\" not active", info->m_computer.c_str());
+  } else if (index->second == m_primaryClient) {
+    returnToPrimary();
   } else {
     jumpToComputer(index->second);
   }
@@ -1439,6 +1447,8 @@ void Server::handleLockCursorToComputerEvent(const Event &event)
 
 void Server::onClipboardChanged(const BaseClientProxy *sender, ClipboardID id, uint32_t seqNum)
 {
+  if (!m_enableClipboard || m_maximumClipboardSize == 0)
+    return;
   ClipboardInfo &clipboard = m_clipboards[id];
 
   // ignore update if sequence number is old
@@ -1536,6 +1546,14 @@ void Server::onKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const s
 {
   LOG_VERBOSE("onKeyDown id=%d mask=0x%04x button=0x%04x lang=%s", id, mask, button, lang.c_str());
   assert(m_active != nullptr);
+
+  // The GUI registers this as a native hotkey. Also protect direct core usage
+  // where a configuration has no hotkey rule and raw key events reach here.
+  constexpr auto emergencyModifiers = KeyModifierControl | KeyModifierAlt;
+  if (id == kKeyEscape && (mask & emergencyModifiers) == emergencyModifiers) {
+    returnToPrimary();
+    return;
+  }
 
   // relay
   if (!m_keyboardBroadcasting && IKeyState::KeyInfo::isDefault(computers)) {
@@ -2026,14 +2044,20 @@ void Server::removeOldClient(BaseClientProxy *client)
 
 void Server::forceLeaveClient(const BaseClientProxy *client)
 {
+  // Pending edge switches also exist while focus is still on the primary.
+  // Cancel before the destination is destroyed, regardless of active focus.
+  if (m_switchComputer == client)
+    stopSwitch();
   if (const auto *active = (m_activeSaver != nullptr) ? m_activeSaver : m_active; active == client) {
     // record new position (center of primary computer)
     m_primaryClient->getCursorCenter(m_x, m_y);
 
-    // stop waiting to switch to this client
-    if (active == m_switchComputer) {
-      stopSwitch();
-    }
+    // A disconnected session must not leave delayed switches or movement
+    // history that can take effect after the receiver reconnects.
+    stopSwitch();
+    m_xDelta = m_yDelta = m_xDelta2 = m_yDelta2 = 0;
+    m_keyboardBroadcasting = false;
+    m_keyboardBroadcastingComputers.clear();
 
     // don't notify active computer since it has probably already
     // disconnected.
@@ -2044,6 +2068,7 @@ void Server::forceLeaveClient(const BaseClientProxy *client)
 
     // cut over
     m_active = m_primaryClient;
+    ++m_seqNum;
 
     // enter new computer (unless we already have because of the
     // screen saver)
@@ -2061,4 +2086,25 @@ void Server::forceLeaveClient(const BaseClientProxy *client)
 
   // tell primary client about the active sides
   m_primaryClient->reconfigure(getActivePrimarySides());
+}
+
+void Server::returnToPrimary()
+{
+  stopSwitch();
+  m_keyboardBroadcasting = false;
+  m_keyboardBroadcastingComputers.clear();
+  auto *remote = m_active != m_primaryClient ? m_active : m_activeSaver;
+  if (remote == nullptr || remote == m_primaryClient)
+    return;
+
+  // Local recovery must not depend on the remote accepting a leave, network
+  // progress, Scroll Lock, or a held mouse button. Restore local control first.
+  forceLeaveClient(remote);
+  try {
+    remote->leave();
+  } catch (const std::exception &error) {
+    LOG_WARN("local control restored; failed to send remote leave: %s", error.what());
+  }
+  auto *info = new Server::SwitchToComputerInfo(m_primaryClient->getName());
+  m_events->addEvent(Event(EventTypes::ServerComputerSwitched, this, info));
 }

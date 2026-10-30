@@ -1,11 +1,5 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
-  - name: Ask a question
-    url: https://github.com/deskflow/deskflow/discussions/new?category=q-a
-    about: Where to ask general questions.
-  - name: Show and Tell
-    url: https://github.com/deskflow/deskflow/discussions/new?category=show-and-tell
-    about: Show off things you have done with Deskflow
-  - name: Chat with us
-    url: https://matrix.to/#/#deskflow:matrix.org
-    about: Join us in live chat.
+  - name: LanBridge 使用与开发说明
+    url: https://github.com/zhouhaozh/LanBridge#readme
+    about: 提交问题前，请先阅读平台限制、权限配置和构建说明。

@@ -1,13 +1,21 @@
-# Contributing to Deskflow
+# 参与 LanBridge 开发
 
-Thanks for your interest in contributing to Deskflow! We welcome all kinds of contributions — bug reports, feature suggestions, documentation improvements, and code.
+LanBridge 基于 Deskflow v1.27.0，当前聚焦 Linux GNOME X11 服务端与 Apple Silicon Mac 客户端。项目概况、构建和使用方式见[根目录 README](../README.md)。
 
-## Read the Full Guidelines
+## 问题反馈
 
-To keep this repository clean and contribution-friendly, we've outlined our full contributing guidelines on the Deskflow Wiki:
+在本仓库提交 Issue，说明两端系统、提交版本、构建方式、复现步骤和预期结果。日志和截图请先移除证书、私钥、真实地址及其他本机信息。上游 Deskflow 的问题应在确认能用原版复现后反馈给上游。
 
-👉 [How to Contribute to Deskflow](https://github.com/deskflow/deskflow/wiki/Contributing)
+## 修改与验证
 
-Please take a moment to read through the page before opening an issue or submitting a pull request.
+- 保留上游版权、SPDX 标识和许可证，优先复用现有代码与构建约定。
+- 每次提交围绕一个目的，避免无关格式调整和未经说明的新依赖。
+- 行为修改补充必要的回归测试；运行非交互 CTest 和打包脚本测试，说明实际验证的平台及未验证项。
+- 自动化测试不能替代真实跨屏、输入法、权限、断线恢复与长时间运行验收。交互测试可能注入按键或修改剪贴板，应在独立环境中执行。
+- 构建、安装包、缓存、密钥和本地交接记录按 `.gitignore` 保留在本机；用于复现的脚本、测试和通用说明应提交。
 
-Thanks again for helping make Deskflow better!
+## 提交与拉取请求
+
+提交标题说明修改目的，正文交代约束和选择原因。按需使用 Git 原生尾注 `Constraint:`、`Rejected:`、`Confidence:`、`Scope-risk:`、`Directive:`、`Tested:`、`Not-tested:`，保留可供后续维护者判断的依据。
+
+拉取请求说明问题、最终行为、验证方式和剩余限制；如使用 AI 工具，说明用途。不要将测试通过写成尚未执行的平台或实机验收通过。

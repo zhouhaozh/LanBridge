@@ -556,19 +556,19 @@ Do you want to connect to the server?
     </message>
     <message>
         <source>Start</source>
-        <translation>启动</translation>
+        <translation type="vanished">启动</translation>
     </message>
     <message>
         <source>Stop</source>
-        <translation>停止</translation>
+        <translation type="vanished">停止</translation>
     </message>
     <message>
         <source>Connect</source>
-        <translation>连接</translation>
+        <translation type="vanished">连接</translation>
     </message>
     <message>
         <source>Disconnect</source>
-        <translation>断开</translation>
+        <translation type="vanished">断开</translation>
     </message>
     <message>
         <source>&lt;p&gt;Failed to connect to the server &apos;%1&apos;.&lt;/p&gt;&lt;p&gt;A Client with your name is already connected to the server.&lt;/p&gt;Please ensure that you&apos;re using a unique name and that only a single instance of the client process is running.&lt;/p&gt;</source>
@@ -922,6 +922,13 @@ Additionally, check you are able to %1 the server config file: %2</source>
     <message>
         <source>Super</source>
         <translation type="unfinished">Super</translation>
+    </message>
+</context>
+<context>
+    <name>QPlatformTheme</name>
+    <message>
+        <source>Cancel</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -1391,6 +1398,69 @@ Enabling this setting will disable the server config GUI.</source>
     <message>
         <source>Encryption Disabled</source>
         <translation>加密已禁用</translation>
+    </message>
+</context>
+<context>
+    <name>deskflow::gui::StartupManager</name>
+    <message>
+        <source>系统授权未完成，请重试；尚未确认登录自启。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>此系统暂不支持登录自启。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在等待系统确认…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>正在检查系统登录自启接口…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>系统没有 Background 接口，可在 Linux 本机使用安装包附带的自启脚本。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>无法查询系统登录自启接口：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>上次系统确认已开启；若在系统设置中修改，请重新授权并注销登录验证。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>登录自启未开启。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>无法接收系统授权结果。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>登录后启动 LanBridge，在局域网中共享键盘和鼠标。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>系统没有 Background 接口，可在 Linux 本机运行附带的自启脚本。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>系统未确认登录自启：%1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>系统已确认开启登录自启。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>登录自启已关闭，或系统未授予自启权限。</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>系统未返回有效的自启授权结果，请重试。</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>

@@ -7,11 +7,14 @@
 #include "NetworkMonitor.h"
 
 #include <QAbstractSocket>
+#include <QFile>
 #include <QList>
 #include <QNetworkInterface>
 #include <QRegularExpression>
 #include <QSet>
 #include <QTimer>
+
+#include <algorithm>
 
 namespace deskflow::gui {
 
@@ -59,6 +62,7 @@ QStringList NetworkMonitor::validAddresses()
   QList<QHostAddress> virtualIP4;
   QList<QHostAddress> virtualIP6;
   QSet<QHostAddress> uniqueAddresses;
+  QHash<QString, QStringList> interfaceAddresses;
 
   const auto allInterfaces = QNetworkInterface::allInterfaces();
   for (const auto &interface : allInterfaces) {
@@ -80,10 +84,14 @@ QStringList NetworkMonitor::validAddresses()
     for (const auto &entry : addressEntries) {
       const QHostAddress address = entry.ip();
 
-      if (address.isLoopback() || (skipLinkLocal && address.isLinkLocal()) || uniqueAddresses.contains(address)) {
+      if (address.isLoopback() || (skipLinkLocal && address.isLinkLocal())) {
         continue;
       }
 
+      if (!isVirtual && address.protocol() == QHostAddress::IPv4Protocol)
+        interfaceAddresses[interface.name()].append(address.toString());
+      if (uniqueAddresses.contains(address))
+        continue;
       uniqueAddresses.insert(address);
 
       if (address.protocol() == QHostAddress::IPv6Protocol) {
@@ -133,7 +141,59 @@ QStringList NetworkMonitor::validAddresses()
   for (const auto &host : result) {
     ipList.append(host.toString());
   }
+#if defined(Q_OS_LINUX)
+  QFile routes(QStringLiteral("/proc/net/route"));
+  if (routes.open(QIODevice::ReadOnly))
+    return preferDefaultIpv4Route(ipList, routes.readAll(), interfaceAddresses);
+#endif
   return ipList;
+}
+
+QStringList NetworkMonitor::preferDefaultIpv4Route(
+    QStringList addresses, const QByteArray &routeTable, const QHash<QString, QStringList> &interfaceAddresses
+)
+{
+  QSet<QString> preferred;
+  quint32 lowestMetric = 0;
+  bool foundRoute = false;
+  for (const auto &line : routeTable.split('\n')) {
+    const auto fields = line.simplified().split(' ');
+    if (fields.size() < 11)
+      continue;
+
+    bool destinationOk, gatewayOk, flagsOk, metricOk, maskOk;
+    const auto destination = fields[1].toUInt(&destinationOk, 16);
+    fields[2].toUInt(&gatewayOk, 16);
+    const auto flags = fields[3].toUInt(&flagsOk, 16);
+    const auto metric = fields[6].toUInt(&metricOk, 10);
+    const auto mask = fields[7].toUInt(&maskOk, 16);
+    // /proc/net/route uses hexadecimal addresses/flags and decimal metrics.
+    // RTF_UP is required; RTF_REJECT must never become a recommendation.
+    if (!destinationOk || !gatewayOk || !flagsOk || !metricOk || !maskOk || destination || mask || !(flags & 0x1) ||
+        (flags & 0x200))
+      continue;
+
+    QStringList candidates;
+    for (const auto &address : interfaceAddresses.value(QString::fromUtf8(fields[0]))) {
+      if (QHostAddress(address).protocol() == QHostAddress::IPv4Protocol && addresses.contains(address))
+        candidates.append(address);
+    }
+    if (candidates.isEmpty() || (foundRoute && metric > lowestMetric))
+      continue;
+    if (!foundRoute || metric < lowestMetric)
+      preferred.clear();
+    foundRoute = true;
+    lowestMetric = metric;
+    for (const auto &address : candidates)
+      preferred.insert(address);
+  }
+
+  if (preferred.isEmpty())
+    return addresses;
+  std::stable_partition(addresses.begin(), addresses.end(), [&preferred](const QString &address) {
+    return preferred.contains(address);
+  });
+  return addresses;
 }
 
 void NetworkMonitor::setIpAddresses(const QStringList &newAddresses)

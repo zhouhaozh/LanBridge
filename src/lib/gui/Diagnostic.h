@@ -8,6 +8,6 @@
 
 namespace deskflow::gui::diagnostic {
 
-void clearSettings(bool enableRestart);
+bool clearSettings(bool enableRestart);
 
 }

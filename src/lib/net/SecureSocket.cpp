@@ -141,6 +141,10 @@ TCPSocket::JobResult SecureSocket::doRead()
     // slurp up as much as possible
     do {
       m_inputBuffer.write(buffer, bytesRead);
+      if (deskflow::InputDiagnostics::enabled()) {
+        m_inputTimes.append(bytesRead, deskflow::InputDiagnostics::now());
+        deskflow::InputDiagnostics::observeQueue(m_inputBuffer.getSize());
+      }
 
       if (m_inputBuffer.getSize() > s_maxInputBufferSize) {
         break;

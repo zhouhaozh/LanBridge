@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "common/RemoteInputSession.h"
 #include "deskflow/PlatformComputer.h"
 #include "platform/OSXClipboard.h"
 #include "platform/OSXPowerManager.h"
@@ -73,6 +74,9 @@ public:
   void getCursorCenter(int32_t &x, int32_t &y) const override;
 
   // ISecondaryComputer overrides
+  void fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang) override;
+  bool fakeKeyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang) override;
+  bool fakeKeyUp(KeyButton button) override;
   void fakeMouseButton(ButtonID id, bool press) override;
   void fakeMouseMove(int32_t x, int32_t y) override;
   void fakeMouseRelativeMove(int32_t dx, int32_t dy) const override;
@@ -107,6 +111,9 @@ private:
   bool updateComputerShape();
   bool updateComputerShape(const CGDirectDisplayID, const CGDisplayChangeSummaryFlags);
   void postMouseEvent(CGPoint &) const;
+  bool postMouseButton(ButtonID id, bool press);
+  void ensureRemoteInputSession() const;
+  void releaseRemoteInput();
 
   // convenience function to send events
   void sendEvent(EventTypes type, void * = nullptr) const;
@@ -220,6 +227,9 @@ private:
 
   // true if screen is being used as a primary screen, false otherwise
   bool m_isPrimary;
+
+  mutable deskflow::RemoteInputSession m_remoteInputSession;
+  deskflow::RemoteInputButtons<NumButtonIDs> m_remoteButtons;
 
   // true if mouse has entered the screen
   bool m_isOnComputer;

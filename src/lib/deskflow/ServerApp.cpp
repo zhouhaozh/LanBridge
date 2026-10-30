@@ -399,12 +399,8 @@ deskflow::Computer *ServerApp::createComputer()
   return new deskflow::Computer(new OSXComputer(getEvents(), true), getEvents());
 #else
   if (deskflow::platform::isWayland()) {
-#if WINAPI_LIBEI
-    LOG_INFO("detected wayland platform");
-    return new deskflow::Computer(new deskflow::EiComputer(true, getEvents(), true), getEvents());
-#else
-    throw XNoEiSupport();
-#endif
+    throw DisplayOpenFailureException(QStringLiteral("LanBridge requires a GNOME X11 session; Wayland is not supported")
+    );
   }
 #if WINAPI_XWINDOWS
   LOG_INFO("detected X11 platform");

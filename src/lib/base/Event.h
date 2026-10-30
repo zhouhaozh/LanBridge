@@ -8,6 +8,7 @@
 #pragma once
 
 #include "EventTypes.h"
+#include "common/InputDiagnostics.h"
 
 #include <assert.h>
 #include <cstdlib>
@@ -71,12 +72,12 @@ public:
         m_data(data),
         m_flags(flags)
   {
-    // do nothing
+    stampInput();
   }
 
   Event(EventTypes type, void *target, EventData *dataObject) : m_type(type), m_target(target), m_dataObject(dataObject)
   {
-    // do nothing
+    stampInput();
   }
 
   //! @name manipulators
@@ -128,6 +129,11 @@ public:
     return m_type;
   }
 
+  uint64_t captureTimestamp() const
+  {
+    return m_captureTimestamp;
+  }
+
   //! Get the event target
   /*!
   Returns the event target.
@@ -172,6 +178,30 @@ private:
   EventTypes m_type = EventTypes::Unknown;
   void *m_target = nullptr;
   void *m_data = nullptr;
+  void stampInput()
+  {
+    using enum EventTypes;
+    switch (m_type) {
+    case KeyStateKeyDown:
+    case KeyStateKeyUp:
+    case KeyStateKeyRepeat:
+    case PrimaryComputerButtonDown:
+    case PrimaryComputerButtonUp:
+    case PrimaryComputerMotionOnPrimary:
+    case PrimaryComputerMotionOnSecondary:
+    case PrimaryComputerWheel:
+    case PrimaryComputerHotkeyDown:
+    case PrimaryComputerHotkeyUp:
+      m_captureTimestamp = deskflow::InputDiagnostics::sendOrigin();
+      if (!m_captureTimestamp)
+        m_captureTimestamp = deskflow::InputDiagnostics::now();
+      break;
+    default:
+      break;
+    }
+  }
+
+  uint64_t m_captureTimestamp = 0;
   Flags m_flags = EventFlags::NoFlags;
   EventData *m_dataObject = nullptr;
 };

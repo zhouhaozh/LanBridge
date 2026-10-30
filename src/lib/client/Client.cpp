@@ -168,8 +168,8 @@ void Client::refuseConnection(deskflow::core::ConnectionRefusal reason, const ch
 
 void Client::handshakeComplete()
 {
-  m_ready = true;
   m_computer->enable();
+  m_ready = true;
   if (m_relativeMouseMoves && !m_hasRelativeRestorePosition) {
     saveRelativeRestorePosition();
   }
@@ -251,6 +251,8 @@ bool Client::leave()
 
 void Client::setClipboard(ClipboardID id, const IClipboard *clipboard)
 {
+  if (!m_enableClipboard)
+    return;
   m_computer->setClipboard(id, clipboard);
   m_ownClipboard[id] = false;
   m_sentClipboard[id] = false;
@@ -258,6 +260,8 @@ void Client::setClipboard(ClipboardID id, const IClipboard *clipboard)
 
 void Client::grabClipboard(ClipboardID id)
 {
+  if (!m_enableClipboard)
+    return;
   m_computer->grabClipboard(id);
   m_ownClipboard[id] = false;
   m_sentClipboard[id] = false;
@@ -271,41 +275,65 @@ void Client::setClipboardDirty(ClipboardID, bool)
 void Client::keyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang)
 {
   m_computer->keyDown(id, mask, button, lang);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::keyRepeat(KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang)
 {
   m_computer->keyRepeat(id, mask, count, button, lang);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::keyUp(KeyID id, KeyModifierMask mask, KeyButton button)
 {
   m_computer->keyUp(id, mask, button);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::mouseDown(ButtonID id)
 {
   m_computer->mouseDown(id);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::mouseUp(ButtonID id)
 {
   m_computer->mouseUp(id);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::mouseMove(int32_t x, int32_t y)
 {
   m_computer->mouseMove(x, y);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::mouseRelativeMove(int32_t dx, int32_t dy)
 {
   m_computer->mouseRelativeMove(dx, dy);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::mouseWheel(int32_t xDelta, int32_t yDelta)
 {
   m_computer->mouseWheel(xDelta, yDelta);
+  deskflow::InputDiagnostics::record(
+      deskflow::InputDiagnostics::Stage::ReceiveToInject, deskflow::InputDiagnostics::receiveOrigin()
+  );
 }
 
 void Client::screensaver(bool activate)
@@ -335,7 +363,7 @@ void Client::setOptions(const OptionsList &options)
         if (!*index) {
           LOG_INFO("clipboard sharing disabled by server");
         }
-        m_enableClipboard = *index;
+        m_enableClipboard = (*index != 0);
       }
     } else if (id == kOptionClipboardSharingSize) {
       index++;

@@ -44,6 +44,12 @@ public:
   */
   virtual uint32_t read(void *buffer, uint32_t n) = 0;
 
+  // Host-local timestamp of the oldest byte returned by the last read.
+  virtual uint64_t lastReadTimestamp() const
+  {
+    return 0;
+  }
+
   //! Write to stream
   /*!
   Write \c n bytes from \c buffer to the stream.  If this can't

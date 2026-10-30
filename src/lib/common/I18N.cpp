@@ -11,6 +11,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QLibraryInfo>
 #include <QList>
 #include <QMap>
 #include <QObject>
@@ -58,6 +59,7 @@ I18N::I18N(QObject *parent) : QObject{parent}
       {QStringLiteral("%1/../qt-depends/translations").arg(appDir)},
       {QStringLiteral("%1/../share/%2/translations").arg(appDir, qt6)},
       {QStringLiteral("%1/../share/%2/translations").arg(appDir, qt)},
+      {QLibraryInfo::path(QLibraryInfo::TranslationsPath)},
       {QStringLiteral("%1/.local/share/%2/translations").arg(homeDir, qt6)},
       {QStringLiteral("%1/.local/share/%2/translations").arg(homeDir, qt)},
       {QStringLiteral("/usr/local/share/%2/translations").arg(qt6)},

@@ -99,11 +99,11 @@ project(
 )
 
 # Define Additional "PROJECT" vars for packaging and metadata
-set(CMAKE_PROJECT_PROPER_NAME "Deskflow")
-set(CMAKE_PROJECT_VENDOR "${CMAKE_PROJECT_PROPER_NAME} Devs")
-set(CMAKE_PROJECT_COPYRIGHT "(C) 2024-2026 ${CMAKE_PROJECT_VENDOR}")
-set(CMAKE_PROJECT_CONTACT "${CMAKE_PROJECT_PROPER_NAME} <maintainers@deskflow.org>")
-set(CMAKE_PROJECT_REV_FQDN "org.deskflow.deskflow")
+set(CMAKE_PROJECT_PROPER_NAME "LanBridge")
+set(CMAKE_PROJECT_VENDOR "LanBridge contributors")
+set(CMAKE_PROJECT_COPYRIGHT "(C) 2024-2026 Deskflow Developers; (C) 2026 LanBridge contributors")
+set(CMAKE_PROJECT_CONTACT "LanBridge contributors")
+set(CMAKE_PROJECT_REV_FQDN "org.lanbridge.LanBridge")
 
 #Unset the vars used in the project call
 unset(DESKFLOW_VERSION_MAJOR)
@@ -236,6 +236,13 @@ else()
 endif()
 
 add_subdirectory(docs)
+
+install(FILES docs/lanbridge/README.zh-CN.md
+  DESTINATION ${CMAKE_INSTALL_DOCDIR}/lanbridge)
+if(UNIX AND NOT APPLE)
+  install(PROGRAMS deploy/lanbridge/login-startup-linux.sh
+    DESTINATION ${CMAKE_INSTALL_DOCDIR}/lanbridge)
+endif()
 
 # build translations before source, I18N unit tests fail if they are missing
 add_subdirectory(translations)

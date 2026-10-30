@@ -95,7 +95,7 @@ int main(int argc, char *argv[])
     return s_exitSuccess;
   }
 
-  const auto shmId = QStringLiteral("%1-gui").arg(kAppId);
+  const auto shmId = QStringLiteral("%1-gui").arg(kRevFqdnName);
   // Create a shared memory segment with a unique key
   // This is to prevent a new instance from running if one is already running
   QSharedMemory sharedMemory(shmId);
@@ -132,17 +132,14 @@ int main(int argc, char *argv[])
 #if defined(Q_OS_MACOS)
 
   if (app.applicationDirPath().startsWith("/Volumes/")) {
-    QString msgBody = QStringLiteral(
-        "Please drag %1 to the Applications folder, "
-        "and open it from there."
-    );
+    const auto msgBody = QStringLiteral("请先将 %1 拖入“应用程序”文件夹，再从那里打开。");
     QMessageBox::information(nullptr, kAppName, msgBody.arg(kAppName));
     return 1;
   }
 
-  if (!checkMacAssistiveDevices()) {
-    return 1;
-  }
+  // Keep the configuration and permission guidance available before authorization.
+  // The receiver separately refuses input injection without Accessibility access.
+  (void)checkMacAssistiveDevices();
 #endif
 
   // --no-reset

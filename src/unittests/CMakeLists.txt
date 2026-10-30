@@ -40,6 +40,9 @@ function(create_test)
   endif()
   add_test(NAME ${m_NAME} COMMAND $<TARGET_FILE:${m_NAME}> WORKING_DIRECTORY ${m_WORKING_DIRECTORY})
   set_tests_properties(${m_NAME} PROPERTIES DEPENDS ${m_DEPENDS})
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set_tests_properties(${m_NAME} PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=minimal")
+  endif()
   set_property(GLOBAL APPEND PROPERTY ${CMAKE_PROJECT_NAME}_tests ${m_NAME})
 
   if(ENABLE_COVERAGE)
@@ -66,16 +69,11 @@ add_subdirectory(net)
 add_subdirectory(platform)
 add_subdirectory(server)
 
-#make sure to use CI only plugin on Unix
-if (UNIX AND NOT APPLE)
-  set(qPA_Platform "QT_QPA_PLATFORM=minimal")
-endif()
-
 #Store all test that should be run post build in the property
 get_property(PROJECT_TESTS GLOBAL PROPERTY ${CMAKE_PROJECT_NAME}_tests)
 
 if(APPLE)
-  set(guiApp Deskflow)
+  set(guiApp ${CMAKE_PROJECT_PROPER_NAME})
 else()
   set(guiApp deskflow)
 endif()
@@ -87,6 +85,6 @@ if(NOT SKIP_BUILD_TESTS)
   add_custom_command (
     TARGET run_tests
     POST_BUILD
-    COMMAND ${qPA_Platform} ${CMAKE_CTEST_COMMAND} --test-dir  "${CMAKE_BINARY_DIR}/src/unittests" --output-on-failure
+    COMMAND ${CMAKE_CTEST_COMMAND} --test-dir  "${CMAKE_BINARY_DIR}/src/unittests" -LE interactive --output-on-failure
   )
 endif()

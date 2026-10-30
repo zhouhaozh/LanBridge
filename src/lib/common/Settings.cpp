@@ -110,6 +110,12 @@ Settings::Settings(QObject *parent) : QObject(parent), m_settingsWatcher{new QFi
 
 void Settings::upgradeSettings()
 {
+  for (const auto &key : {Security::TlsEnabled, Security::CheckPeers}) {
+    if (m_settings->contains(key) && !m_settings->value(key).toBool()) {
+      qWarning().noquote() << "LanBridge requires TLS and peer verification; refusing disabled setting:" << key;
+      m_settings->setValue(key, true);
+    }
+  }
   if (const auto logValue = m_settings->value(Settings::Log::Level).toString();
       !LogLevel::logLevelOptions().contains(logValue, Qt::CaseInsensitive))
     m_settings->setValue(Settings::Log::Level, defaultValue(Settings::Log::Level));
@@ -268,7 +274,7 @@ void Settings::cleanStateSettings()
 void Settings::setupComputerName()
 {
   if (m_settings->value(Settings::Core::ComputerName).toString().isEmpty())
-    m_settings->setValue(Settings::Core::ComputerName, cleanComputerName(QSysInfo::machineHostName()));
+    m_settings->setValue(Settings::Core::ComputerName, defaultValue(Settings::Core::ComputerName));
 }
 
 QString Settings::cleanComputerName(const QString &name)
@@ -340,6 +346,31 @@ QVariant Settings::defaultValue(const QString &key)
   if (key == Server::ExternalConfigFile)
     return QStringLiteral("%1/%2-server.conf").arg(Settings::settingsPath(), kAppId);
 
+  if (key == Core::ComputerName) {
+#ifdef Q_OS_MACOS
+    return QStringLiteral("mac");
+#else
+    return QStringLiteral("linux");
+#endif
+  }
+
+  if (key == Core::CoreMode) {
+#ifdef Q_OS_MACOS
+    return Settings::Client;
+#else
+    return Settings::Server;
+#endif
+  }
+
+  if (key == Core::Language)
+    return QStringLiteral("zh_CN");
+
+  if (key == Client::RemoteHost)
+    return QStringLiteral("192.168.50.219");
+
+  if (key == LanBridge::MacPosition)
+    return QStringLiteral("right");
+
   if (key == Core::Port)
     return 24800;
 
@@ -367,7 +398,7 @@ QVariant Settings::defaultValue(const QString &key)
     return kServerGridHeight;
 
   if (key == Server::Heartbeat)
-    return 5000;
+    return 1000;
 
   if (key == Server::SwitchDelay || key == Server::SwitchDoubleTap)
     return 250;
@@ -463,6 +494,16 @@ QString Settings::logLevelText()
 
 void Settings::setValue(const QString &key, const QVariant &value)
 {
+  if ((key == Security::TlsEnabled || key == Security::CheckPeers) && value.isValid() && !value.toBool()) {
+    qWarning().noquote() << "LanBridge requires TLS and peer verification; refusing disabled setting:" << key;
+    setValue(key, true);
+    return;
+  }
+  // Dynamic retries remain disabled, including imported or reset settings.
+  if (key == Client::DynamicConnectionRetry && value.toBool()) {
+    setValue(key, false);
+    return;
+  }
   const bool useState = Settings::m_stateKeys.contains(key) && !instance()->isPortableMode();
   auto settings = useState ? instance()->m_stateSettings : instance()->m_settings;
 
@@ -484,6 +525,10 @@ void Settings::setValue(const QString &key, const QVariant &value)
 
 QVariant Settings::value(const QString &key)
 {
+  if (key == Security::TlsEnabled || key == Security::CheckPeers)
+    return true;
+  if (key == Client::DynamicConnectionRetry)
+    return false;
   const bool useState = Settings::m_stateKeys.contains(key) && !instance()->isPortableMode();
   auto settings = useState ? instance()->m_stateSettings : instance()->m_settings;
   return settings->value(key, defaultValue(key));

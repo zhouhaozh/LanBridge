@@ -11,6 +11,20 @@ if (WIN32)
   )
 elseif(APPLE)
   create_test(
+    NAME OSXShortcutTests
+    DEPENDS platform
+    LIBS base arch
+    SOURCE OSXShortcutTests.cpp
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
+  )
+  create_test(
+    NAME OSXNativeFailureTests
+    DEPENDS platform
+    LIBS base arch
+    SOURCE OSXNativeFailureTests.cpp
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
+  )
+  create_test(
     NAME OSXClipboardTests
     DEPENDS platform
     LIBS base arch
@@ -24,6 +38,8 @@ elseif(APPLE)
     SOURCE OSXKeyStateTests.cpp
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/platform"
   )
+  # These tests inject native key events and replace the user's clipboard.
+  set_tests_properties(OSXClipboardTests OSXKeyStateTests PROPERTIES LABELS "interactive")
 elseif(UNIX)
   if(LIBEI_FOUND)
     create_test(

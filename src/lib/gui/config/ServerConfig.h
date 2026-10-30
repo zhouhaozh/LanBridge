@@ -56,6 +56,7 @@ public:
   QString configFile() const;
   bool useExternalConfig() const;
   void addClient(const QString &clientName);
+  void configureLanBridge(const QString &macPosition);
 
 private:
   void recall();

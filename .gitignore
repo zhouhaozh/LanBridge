@@ -3,8 +3,10 @@
 # SPDX-FileCopyrightText: Copyright (C) 2010 Jason Axelson <BostonVaulter@gmail.com>
 # SPDX-License-Identifier: MIT
 
-# temp dirs created during build
+# 构建目录、依赖与打包产物（源码及构建脚本应提交）
 /build
+/build-*/
+/cmake-build-*/
 /dist
 /deps
 /tmp
@@ -12,6 +14,8 @@
 /vcpkg_installed
 /.cache
 /.venv
+/.flatpak-builder/
+/bw-output/
 aqtinstall.log
 Brewfile.lock.json
 
@@ -21,9 +25,34 @@ deskflow-config.toml
 .DS_Store
 *.code-workspace
 .env*
+!.env.example
+!.env.sample
+!.env.template
 /scripts/*.egg-info
 /*.user
 *.ui.autosave
+/.idea/
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+*.log
+
+# 本地运行配置、证书与私钥
+deskflow.conf
+deskflow.ini
+lanbridge.conf
+lanbridge.ini
+*.pem
+*.key
+*.p12
+*.pfx
 
 #Qt creator 18 user files
 /.qtcreator
@@ -38,13 +67,58 @@ vcpkg.json
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeUserPresets.json
-CMakeFiles/*
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+compile_commands.json
+install_manifest.txt
+CPackConfig.cmake
+CPackSourceConfig.cmake
+_CPack_Packages/
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.app/
+*.dSYM/
+*.dmg
+*.flatpak
+*.deb
+*.rpm
+*.msi
+*.pkg
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+
+# Python 工具的缓存与本地测试输出
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
 
 # vscode folder
 /.vscode
 
-# scripts folder
-/scripts
+# 本地代理状态、会话交接和机器专属验收记录
+/.omx/
+/.codex/
+/.claude/
+/docs/lanbridge/ACCEPTANCE.zh-CN.md
+/docs/lanbridge/HANDOFF.zh-CN.md
 
 # Ai helperfilers
 **/[cC]laude.[mM][dD]

@@ -27,6 +27,8 @@ void PacketStreamFilter::close()
   std::scoped_lock lock{m_mutex};
   m_size = 0;
   m_buffer.pop(m_buffer.getSize());
+  m_bufferTimes.clear();
+  m_packetTimestamp = m_lastReadTimestamp = 0;
   StreamFilter::close();
 }
 
@@ -53,6 +55,8 @@ uint32_t PacketStreamFilter::read(void *buffer, uint32_t n)
     memcpy(buffer, m_buffer.peek(n), n);
   }
   m_buffer.pop(n);
+  m_bufferTimes.consume(n);
+  m_lastReadTimestamp = m_packetTimestamp;
   m_size -= n;
 
   // get next packet's size if we've finished with this packet and
@@ -74,7 +78,11 @@ void PacketStreamFilter::write(const void *buffer, uint32_t count)
   length[1] = (uint8_t)((count >> 16) & 0xff);
   length[2] = (uint8_t)((count >> 8) & 0xff);
   length[3] = (uint8_t)(count & 0xff);
-  getStream()->write(length, sizeof(length));
+  {
+    // Count one sample at the payload's final byte, never at the prefix.
+    deskflow::InputDiagnostics::SendScope prefix(0);
+    getStream()->write(length, sizeof(length));
+  }
 
   // write the payload
   getStream()->write(buffer, count);
@@ -85,6 +93,8 @@ void PacketStreamFilter::shutdownInput()
   std::scoped_lock lock{m_mutex};
   m_size = 0;
   m_buffer.pop(m_buffer.getSize());
+  m_bufferTimes.clear();
+  m_packetTimestamp = m_lastReadTimestamp = 0;
   StreamFilter::shutdownInput();
 }
 
@@ -92,6 +102,12 @@ bool PacketStreamFilter::isReady() const
 {
   std::scoped_lock lock{m_mutex};
   return isReadyNoLock();
+}
+
+uint64_t PacketStreamFilter::lastReadTimestamp() const
+{
+  std::scoped_lock lock{m_mutex};
+  return m_lastReadTimestamp;
 }
 
 uint32_t PacketStreamFilter::getSize() const
@@ -113,6 +129,7 @@ bool PacketStreamFilter::readPacketSize()
     uint8_t buffer[4];
     memcpy(buffer, m_buffer.peek(sizeof(buffer)), sizeof(buffer));
     m_buffer.pop(sizeof(buffer));
+    m_packetTimestamp = m_bufferTimes.consume(sizeof(buffer));
     m_size =
         ((uint32_t)buffer[0] << 24) | ((uint32_t)buffer[1] << 16) | ((uint32_t)buffer[2] << 8) | (uint32_t)buffer[3];
     if (m_size > PROTOCOL_MAX_MESSAGE_LENGTH) {
@@ -130,14 +147,28 @@ bool PacketStreamFilter::readMore()
 
   // read more data
   char buffer[4096];
+  uint32_t buffered = 0;
   uint32_t n = getStream()->read(buffer, sizeof(buffer));
   while (n > 0) {
     m_buffer.write(buffer, n);
+    if (deskflow::InputDiagnostics::enabled()) {
+      m_bufferTimes.append(n, getStream()->lastReadTimestamp());
+      deskflow::InputDiagnostics::observeQueue(m_buffer.getSize());
+    }
 
     // if we don't yet have the next packet size then get it, if possible.
     // Note that we can't wait for whole pending data to arrive because it may be huge in
     // case of malicious or erroneous peer.
     if (!readPacketSize()) {
+      break;
+    }
+
+    buffered += n;
+    if (buffered >= 64 * 1024) {
+      // Yield to heartbeat deadlines even if a peer continuously fills the
+      // transport. Continue via the underlying stream's normal handler.
+      if (getStream()->isReady())
+        m_events->addEvent(Event(EventTypes::StreamInputReady, getStream()->getEventTarget()));
       break;
     }
 

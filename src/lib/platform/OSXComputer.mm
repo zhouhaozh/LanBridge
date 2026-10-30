@@ -501,12 +501,63 @@ void OSXComputer::postMouseEvent(CGPoint &pos) const
   CFRelease(event);
 }
 
+void OSXComputer::ensureRemoteInputSession() const
+{
+  if (m_isPrimary)
+    return;
+  if (!AXIsProcessTrusted() || m_keyState->nativeInjectionFailed() || !m_remoteInputSession.begin()) {
+    LOG_CRIT(
+        "LANBRIDGE_RECOVERY_REQUIRED: remote input blocked; restore local input and acknowledge recovery in the GUI"
+    );
+    throw ExitAppException(deskflow::RemoteInputSession::recoveryExitCode);
+  }
+}
+
+void OSXComputer::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang)
+{
+  ensureRemoteInputSession();
+  PlatformComputer::fakeKeyDown(id, mask, button, lang);
+  ensureRemoteInputSession();
+}
+
+bool OSXComputer::fakeKeyRepeat(
+    KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang
+)
+{
+  ensureRemoteInputSession();
+  const bool result = PlatformComputer::fakeKeyRepeat(id, mask, count, button, lang);
+  ensureRemoteInputSession();
+  return result;
+}
+
+bool OSXComputer::fakeKeyUp(KeyButton button)
+{
+  ensureRemoteInputSession();
+  const bool result = PlatformComputer::fakeKeyUp(button);
+  ensureRemoteInputSession();
+  return result;
+}
+
 void OSXComputer::fakeMouseButton(ButtonID id, bool press)
+{
+  ensureRemoteInputSession();
+  const uint32_t index = mapDeskflowButtonToMac(id) - kButtonLeft;
+  if (index >= NumButtonIDs)
+    return;
+  if (!postMouseButton(id, press)) {
+    LOG_CRIT("LANBRIDGE_RECOVERY_REQUIRED: failed to create mouse button event");
+    throw ExitAppException(deskflow::RemoteInputSession::recoveryExitCode);
+  }
+  if (!m_isPrimary)
+    m_remoteButtons.record(index, press);
+}
+
+bool OSXComputer::postMouseButton(ButtonID id, bool press)
 {
   // Buttons are indexed from one, but the button down array is indexed from zero
   uint32_t index = mapDeskflowButtonToMac(id) - kButtonLeft;
   if (index >= NumButtonIDs) {
-    return;
+    return false;
   }
 
   CGPoint pos;
@@ -556,6 +607,8 @@ void OSXComputer::fakeMouseButton(ButtonID id, bool press)
   CGEventType type = thisButtonMap[state];
 
   CGEventRef event = CGEventCreateMouseEvent(nullptr, type, pos, static_cast<CGMouseButton>(index));
+  if (event == nullptr)
+    return false;
 
   if (needsEventNumber()) {
     if (press) {
@@ -582,10 +635,41 @@ void OSXComputer::fakeMouseButton(ButtonID id, bool press)
   CGEventPost(kCGHIDEventTap, event);
 
   CFRelease(event);
+  return true;
+}
+
+void OSXComputer::releaseRemoteInput()
+{
+  if (m_isPrimary)
+    return;
+
+  // Never clear a previous process's marker. If permissions were revoked we
+  // cannot claim that native releases were delivered, so retain the marker.
+  const bool clean = m_remoteInputSession.finish([this] {
+    if (!AXIsProcessTrusted())
+      return false;
+    PlatformComputer::fakeAllKeysUp();
+    const bool buttonsReleased = m_remoteButtons.releaseAll([this](size_t index) {
+      return postMouseButton(mapMacButtonToDeskflow(static_cast<uint16_t>(index + kButtonLeft)), false);
+    });
+    if (buttonsReleased)
+      m_buttonState.reset();
+    return buttonsReleased && !m_keyState->nativeInjectionFailed() && AXIsProcessTrusted();
+  });
+  if (!clean) {
+    LOG_ERR("LANBRIDGE_RECOVERY_REQUIRED: input cleanup incomplete; local recovery acknowledgement is required");
+    // Stop the event loop before its ordinary disconnect handler can retry.
+    // Also preserve the code when this runs during exception cleanup.
+    App::instance().updateExitCode(deskflow::RemoteInputSession::recoveryExitCode);
+    m_events->addEvent(
+        Event(EventTypes::Quit, nullptr, new ExitEventData(deskflow::RemoteInputSession::recoveryExitCode))
+    );
+  }
 }
 
 void OSXComputer::fakeMouseMove(int32_t x, int32_t y)
 {
+  ensureRemoteInputSession();
   // synthesize event
   CGPoint pos;
   pos.x = x;
@@ -600,6 +684,7 @@ void OSXComputer::fakeMouseMove(int32_t x, int32_t y)
 
 void OSXComputer::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
 {
+  ensureRemoteInputSession();
   // OS X does not appear to have a fake relative mouse move function.
   // simulate it by getting the current mouse position and adding to
   // that.  this can yield the wrong answer but there's not much else
@@ -624,6 +709,7 @@ void OSXComputer::fakeMouseRelativeMove(int32_t dx, int32_t dy) const
 
 void OSXComputer::fakeMouseWheel(ScrollDelta delta) const
 {
+  ensureRemoteInputSession();
   if (delta.x != 0 || delta.y != 0) {
     // use server's acceleration with a little boost since other platforms
     // take one wheel step as a larger step than the mac does.
@@ -750,6 +836,7 @@ void OSXComputer::enable()
 
 void OSXComputer::disable()
 {
+  releaseRemoteInput();
   showCursor();
 
   // FIXME -- stop watching jump zones, stop capturing input
@@ -820,6 +907,7 @@ bool OSXComputer::canLeave()
 
 void OSXComputer::leave()
 {
+  releaseRemoteInput();
   hideCursor();
 
   if (m_isPrimary) {
@@ -1456,13 +1544,16 @@ void OSXComputer::watchSystemPowerThread(const void *)
 
   // cleanup
   if (notificationPortRef) {
-    CFRunLoopRemoveSource(m_pmRunloop, runloopSourceRef, kCFRunLoopDefaultMode);
-    CFRunLoopSourceInvalidate(runloopSourceRef);
-    CFRelease(runloopSourceRef);
+    CFRunLoopRemoveSource(m_pmRunloop, runloopSourceRef, kCFRunLoopCommonModes);
   }
 
   Lock lock(m_pmMutex);
   IODeregisterForSystemPower(&notifier);
+  IOServiceClose(m_pmRootPort);
+  // The run loop source is borrowed; its notification port owns and destroys it.
+  if (notificationPortRef) {
+    IONotificationPortDestroy(notificationPortRef);
+  }
   m_pmRootPort = 0;
   LOG_DEBUG("stopped watchSystemPowerThread");
 }

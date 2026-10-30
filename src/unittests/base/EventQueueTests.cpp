@@ -7,10 +7,50 @@
 #include "EventQueueTests.h"
 
 #include "base/EventQueue.h"
+#include "base/IEventQueueBuffer.h"
 
 #include <QTest>
 
 #include <memory>
+
+namespace {
+class BusyNativeBuffer : public IEventQueueBuffer
+{
+public:
+  void init() override
+  {
+  }
+  void waitForEvent(double) override
+  {
+  }
+  Type getEvent(Event &event, uint32_t &) override
+  {
+    event = Event(EventTypes::System, this);
+    return Type::System;
+  }
+  bool addEvent(uint32_t) override
+  {
+    return true;
+  }
+  bool isEmpty() const override
+  {
+    return false;
+  }
+};
+} // namespace
+
+void EventQueueTests::expiredTimerRunsBeforeContinuousNativeInput()
+{
+  EventQueue events;
+  events.adoptBuffer(new BusyNativeBuffer);
+  auto *deadline = events.newOneShotTimer(0.001, this);
+  QTest::qSleep(5);
+  Event event;
+  QVERIFY(events.getEvent(event, 0));
+  QCOMPARE(event.getType(), EventTypes::Timer);
+  QCOMPARE(event.getTarget(), this);
+  events.deleteTimer(deadline);
+}
 
 void EventQueueTests::initTestCase()
 {

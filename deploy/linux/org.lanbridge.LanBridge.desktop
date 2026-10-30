@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: (C) 2026 LanBridge contributors
+# SPDX-License-Identifier: MIT
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=LanBridge
+Comment=Share a keyboard and mouse between Linux and macOS
+Comment[zh_CN]=在 Linux 与 Mac 之间共享键盘和鼠标
+Exec=deskflow
+Icon=org.lanbridge.LanBridge
+Terminal=false
+Categories=Utility;
+Keywords=keyboard;mouse;sharing;network;
+Keywords[zh_CN]=键盘;鼠标;局域网;共享;

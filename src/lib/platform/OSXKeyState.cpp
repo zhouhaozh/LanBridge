@@ -182,6 +182,15 @@ bool isModifier(uint8_t virtualKey)
   return (modifiers.find(virtualKey) != modifiers.end());
 }
 
+KeyModifierMask copyPasteModifiers(KeyID id, KeyModifierMask mask)
+{
+  constexpr auto locks = KeyModifierCapsLock | KeyModifierNumLock | KeyModifierScrollLock;
+  if ((mask & ~locks) == KeyModifierControl && (id == 'c' || id == 'C' || id == 'v' || id == 'V')) {
+    return (mask & ~KeyModifierControl) | KeyModifierSuper;
+  }
+  return mask;
+}
+
 AutoTISInputSourceRef copyKeyboardLayoutForKeyTranslation()
 {
   std::lock_guard<std::mutex> lock(g_tisMutex);
@@ -247,6 +256,19 @@ void OSXKeyState::init()
 
     m_virtualKeyMap[s_controlKeys[i].m_virtualKey] = s_controlKeys[i].m_keyID;
   }
+}
+
+void OSXKeyState::fakeKeyDown(KeyID id, KeyModifierMask mask, KeyButton button, const std::string &lang)
+{
+  // KeyMap temporarily adjusts modifiers for this key, then restores the held Control key.
+  KeyState::fakeKeyDown(id, copyPasteModifiers(id, mask), button, lang);
+}
+
+bool OSXKeyState::fakeKeyRepeat(
+    KeyID id, KeyModifierMask mask, int32_t count, KeyButton button, const std::string &lang
+)
+{
+  return KeyState::fakeKeyRepeat(id, copyPasteModifiers(id, mask), count, button, lang);
 }
 
 KeyModifierMask OSXKeyState::mapModifiersFromOSX(uint32_t mask) const
@@ -663,14 +685,20 @@ kern_return_t OSXKeyState::postHIDVirtualKey(uint8_t virtualKey, bool postDown)
   return result;
 }
 
+CGEventRef OSXKeyState::createKeyboardEvent(CGKeyCode key, bool down)
+{
+  return CGEventCreateKeyboardEvent(nullptr, key, down);
+}
+
 void OSXKeyState::postKeyboardKey(CGKeyCode virtualKey, bool keyDown)
 {
-  CGEventRef event = CGEventCreateKeyboardEvent(nullptr, virtualKey, keyDown);
+  CGEventRef event = createKeyboardEvent(virtualKey, keyDown);
   if (event) {
     CGEventSetFlags(event, getKeyboardEventFlags());
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
   } else {
+    m_nativeInjectionFailed = true;
     LOG_CRIT("unable to create keyboard event for keystroke");
   }
 }

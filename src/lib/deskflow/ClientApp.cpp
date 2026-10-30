@@ -14,6 +14,7 @@
 #include "client/Client.h"
 #include "common/ExitCodes.h"
 #include "common/PlatformInfo.h"
+#include "common/RemoteInputSession.h"
 #include "common/Settings.h"
 #include "deskflow/Computer.h"
 #include "deskflow/DisplayException.h"
@@ -114,12 +115,8 @@ deskflow::Computer *ClientApp::createComputer()
   return new deskflow::Computer(new OSXComputer(getEvents(), false, languageSync), getEvents());
 #else
   if (deskflow::platform::isWayland()) {
-#if WINAPI_LIBEI
-    LOG_INFO("detected wayland platform");
-    return new deskflow::Computer(new deskflow::EiComputer(false, getEvents(), true), getEvents());
-#else
-    throw XNoEiSupport();
-#endif
+    throw DisplayOpenFailureException(QStringLiteral("LanBridge requires a GNOME X11 session; Wayland is not supported")
+    );
   }
 #if WINAPI_XWINDOWS
   LOG_INFO("detected X11 platform");
@@ -328,7 +325,15 @@ int ClientApp::mainLoop()
   // run event loop.  if startClient() failed we're supposed to retry
   // later.  the timer installed by startClient() will take care of
   // that.
-  int exitCode = getEvents()->loop();
+  int exitCode;
+  try {
+    exitCode = getEvents()->loop();
+  } catch (...) {
+    // A persistence or injection failure must still attempt ordered cleanup.
+    // An unowned/stale marker is deliberately retained by the platform layer.
+    stopClient();
+    throw;
+  }
 
   // close down
   LOG_DEBUG("stopping client");
@@ -340,6 +345,14 @@ int ClientApp::mainLoop()
 
 int ClientApp::start()
 {
+#if defined(Q_OS_MACOS)
+  if (deskflow::RemoteInputSession::recoveryRequired()) {
+    LOG_CRIT(
+        "LANBRIDGE_RECOVERY_REQUIRED: previous receiver did not cleanly release input; local acknowledgement required"
+    );
+    return deskflow::RemoteInputSession::recoveryExitCode;
+  }
+#endif
   initApp();
   return mainLoop();
 }
@@ -390,17 +403,6 @@ ISocketFactory *ClientApp::getSocketFactory() const
 
 double ClientApp::retryTime() const
 {
-  if (!Settings::value(Settings::Client::DynamicConnectionRetry).toBool() || m_retryCount < 300) // 5 minutes
-    return 1;
-  if (m_retryCount < 360) // 5 minutes
-    return 5;
-  if (m_retryCount < 390) // 5 minutes
-    return 10;
-  if (m_retryCount < 410) // 10 minutes
-    return 30;
-  if (m_retryCount < 420) // 10 minutes
-    return 60;
-  if (m_retryCount < 430) // 20 minutes
-    return 120;
-  return 300;
+  // LAN recovery should stay responsive even after a long sleep or outage.
+  return 1;
 }

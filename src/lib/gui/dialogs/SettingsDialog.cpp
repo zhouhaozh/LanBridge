@@ -32,6 +32,7 @@ SettingsDialog::SettingsDialog(QWidget *parent, const ServerConfig &serverConfig
 {
 
   ui->setupUi(this);
+  ui->groupSecurity->setCheckable(false);
   layout()->addWidget(m_buttonBox);
   ui->tabWidget->setCurrentIndex(0);
 
@@ -52,8 +53,8 @@ SettingsDialog::SettingsDialog(QWidget *parent, const ServerConfig &serverConfig
   ui->comboTlsKeyLength->setItemIcon(1, QIcon::fromTheme(QIcon::ThemeIcon::SecurityHigh));
   ui->lblTlsCertInfo->setFixedSize(28, 28);
 
-  ui->rbIconMono->setIcon(QIcon::fromTheme(QStringLiteral("%1-symbolic").arg(kRevFqdnName)));
-  ui->rbIconColorful->setIcon(QIcon::fromTheme(kRevFqdnName));
+  ui->rbIconMono->setIcon(QIcon::fromTheme(QStringLiteral("org.deskflow.deskflow-symbolic")));
+  ui->rbIconColorful->setIcon(QIcon::fromTheme(QStringLiteral("org.deskflow.deskflow")));
 
   // force the first tab, since qt creator sets the active tab as the last one
   // the developer was looking at, and it's easy to accidentally save that.
@@ -200,6 +201,8 @@ void SettingsDialog::resetAllSettings()
 
 void SettingsDialog::updateText()
 {
+  ui->groupSecurity->setTitle(QStringLiteral("加密连接（始终启用 TLS）"));
+  ui->cbRequireClientCert->setText(QStringLiteral("校验对方证书指纹（始终开启）"));
   const auto logLevels = LogLevel::logLevelNames().count();
   const QStringList toolTips = {tr("Required messages"),        tr("Non-fatal errors"), tr("General warnings"),
                                 tr("General events [Default]"), tr("Debug entries"),    tr("Verbose debug output")};
@@ -231,7 +234,7 @@ void SettingsDialog::accept()
   Settings::setValue(Settings::Core::PreventSleep, ui->cbPreventSleep->isChecked());
   Settings::setValue(Settings::Security::Certificate, ui->lineTlsCertPath->text());
   Settings::setValue(Settings::Security::KeySize, ui->comboTlsKeyLength->currentText().toInt());
-  Settings::setValue(Settings::Security::TlsEnabled, ui->groupSecurity->isChecked());
+  Settings::setValue(Settings::Security::TlsEnabled, true);
   Settings::setValue(Settings::Gui::CloseToTray, ui->rbCloseToTray->isChecked());
   Settings::setValue(Settings::Gui::SymbolicTrayIcon, ui->rbIconMono->isChecked());
   Settings::setValue(Settings::Security::CheckPeers, ui->cbRequireClientCert->isChecked());
@@ -328,15 +331,13 @@ void SettingsDialog::updateTlsControls()
 void SettingsDialog::updateTlsControlsEnabled()
 {
   const auto writable = Settings::isWritable();
-  const auto tlsChecked = ui->groupSecurity->isChecked();
-
-  auto enabled = writable && tlsChecked;
+  const auto enabled = writable;
   ui->lblTlsKeyLength->setEnabled(enabled);
   ui->comboTlsKeyLength->setEnabled(enabled);
   ui->lblTlsCert->setEnabled(enabled);
   ui->widgetTlsCert->setEnabled(enabled);
   ui->btnTlsRegenCert->setEnabled(enabled);
-  ui->cbRequireClientCert->setEnabled(enabled && !isClientMode());
+  ui->cbRequireClientCert->setEnabled(false);
 }
 
 bool SettingsDialog::isClientMode() const
@@ -438,7 +439,6 @@ bool SettingsDialog::isModified() const
       (ui->groupService->isChecked() != (processMode == Settings::ProcessMode::Service)) ||
       (ui->lineTlsCertPath->text() != Settings::value(Settings::Security::Certificate).toString()) ||
       (ui->comboTlsKeyLength->currentText() != Settings::value(Settings::Security::KeySize).toString()) ||
-      (ui->groupSecurity->isChecked() != Settings::value(Settings::Security::TlsEnabled).toBool()) ||
       (ui->cbRequireClientCert->isChecked() != Settings::value(Settings::Security::CheckPeers).toBool()) ||
       (ui->cbRunEnterCommand->isChecked() != Settings::value(Settings::Core::EnableEnterCommand).toBool()) ||
       (ui->cbRunExitCommand->isChecked() != Settings::value(Settings::Core::EnableExitCommand).toBool()) ||
@@ -474,13 +474,13 @@ bool SettingsDialog::isDefault() const
       (ui->comboInterface->currentIndex() == 0) &&
       (ui->lineTlsCertPath->text() == Settings::defaultValue(Settings::Security::Certificate).toString()) &&
       (ui->comboTlsKeyLength->currentText() == Settings::defaultValue(Settings::Security::KeySize).toString()) &&
-      (ui->groupSecurity->isChecked() == Settings::defaultValue(Settings::Security::TlsEnabled).toBool()) &&
       (ui->cbRequireClientCert->isChecked() == Settings::defaultValue(Settings::Security::CheckPeers).toBool()) &&
       (ui->lineCommandEnter->text() == Settings::defaultValue(Settings::Core::ComputerEnterCommand).toString()) &&
       (ui->lineCommandExit->text() == Settings::defaultValue(Settings::Core::ComputerExitCommand).toString()) &&
       (ui->cbRunEnterCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableEnterCommand).toBool()) &&
       (ui->cbRunExitCommand->isChecked() == Settings::defaultValue(Settings::Core::EnableExitCommand).toBool()) &&
-      (ui->comboLanguage->currentText() == "English")
+      (I18N::nativeTo639Name(ui->comboLanguage->currentText()) ==
+       Settings::defaultValue(Settings::Core::Language).toString())
   );
 }
 
@@ -524,6 +524,7 @@ void SettingsDialog::resetToDefault()
   ui->lblDebugWarning->setVisible(false);
 
   ui->comboInterface->setCurrentIndex(0);
+  ui->comboLanguage->setCurrentText(I18N::toNativeName(Settings::defaultValue(Settings::Core::Language).toString()));
 
   qDebug() << "reset to default values";
   updateControls();

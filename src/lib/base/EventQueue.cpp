@@ -108,6 +108,9 @@ void EventQueue::adoptBuffer(IEventQueueBuffer *buffer)
 
 bool EventQueue::processEvent(Event &event, double timeout, Stopwatch &timer)
 {
+  // Heartbeat and recovery deadlines must run even under continuous input.
+  if (hasTimerExpired(event))
+    return true;
   // if no events are waiting then handle timers and then wait
   while (m_buffer->isEmpty()) {
     // handle timers first
@@ -170,6 +173,7 @@ bool EventQueue::getEvent(Event &event, double timeout)
 
 bool EventQueue::dispatchEvent(const Event &event)
 {
+  deskflow::InputDiagnostics::SendScope timing(event.captureTimestamp());
 #if defined(__APPLE__)
   auto dispatch = [&] {
 #endif

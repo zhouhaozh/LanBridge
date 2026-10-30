@@ -401,5 +401,6 @@ private:
 private:
   RuleList m_ruleList;
   PrimaryClient *m_primaryClient = nullptr;
+  uint32_t m_emergencyHotkeyId = 0;
   IEventQueue *m_events;
 };

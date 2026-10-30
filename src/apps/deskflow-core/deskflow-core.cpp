@@ -13,6 +13,8 @@
 #include "base/Log.h"
 #include "common/Constants.h"
 #include "common/ExitCodes.h"
+#include "common/InputDiagnostics.h"
+#include "common/Settings.h"
 #include "deskflow/ClientApp.h"
 #include "deskflow/ServerApp.h"
 #include "deskflow/ipc/CoreIpcServer.h"
@@ -22,10 +24,12 @@
 #endif
 
 #include <QApplication>
+#include <QDir>
 #include <QFileInfo>
 #include <QSharedMemory>
 #include <QTextStream>
 #include <QThread>
+#include <QTimer>
 
 void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
@@ -87,6 +91,7 @@ int main(int argc, char **argv)
   // Print any parser errors
   if (!parser.errorText().isEmpty()) {
     QTextStream(stdout) << parser.errorText() << "\n";
+    return s_exitArgs;
   }
 
   if (parser.help()) {
@@ -102,7 +107,7 @@ int main(int argc, char **argv)
   // Before we check any more args we need to check for a duplicate process.
   // Create a shared memory segment with a unique key
   // This is to prevent a new instance from running if one is already running
-  QSharedMemory sharedMemory(kCoreBinName);
+  QSharedMemory sharedMemory(kCoreIpcName);
 
   // Attempt to attach first and detach in order to clean up stale shm chunks
   // This can happen if the previous instance was killed or crashed
@@ -115,6 +120,17 @@ int main(int argc, char **argv)
   }
 
   parser.parse();
+
+  deskflow::InputDiagnostics::configure(Settings::value(Settings::LanBridge::DiagnosticsEnabled).toBool());
+  const auto diagnosticPath = Settings::settingsPath() + "/diagnostics.json";
+  QTimer diagnosticTimer;
+  if (deskflow::InputDiagnostics::enabled()) {
+    QDir().mkpath(Settings::settingsPath());
+    QObject::connect(&diagnosticTimer, &QTimer::timeout, &app, [&] {
+      deskflow::InputDiagnostics::save(diagnosticPath);
+    });
+    diagnosticTimer.start(5000);
+  }
 
   EventQueue events;
   const auto processName = QFileInfo(argv[0]).fileName();
@@ -133,6 +149,7 @@ int main(int argc, char **argv)
 
   int exitCode = QApplication::exec();
   coreThread.wait();
+  deskflow::InputDiagnostics::save(diagnosticPath);
 
   if (exitCode == s_exitSuccess) {
     exitCode = coreApp->getExitCode();

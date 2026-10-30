@@ -28,3 +28,17 @@ create_test(
   SOURCE KeySequenceTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/common"
 )
+
+create_test(
+  NAME RemoteInputSessionTests
+  DEPENDS common
+  SOURCE RemoteInputSessionTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/common"
+)
+
+create_test(
+  NAME InputDiagnosticsTests
+  DEPENDS common
+  SOURCE InputDiagnosticsTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/common"
+)

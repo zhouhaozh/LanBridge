@@ -1,0 +1,176 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: (C) 2026 LanBridge contributors
+# SPDX-License-Identifier: MIT
+set -Eeuo pipefail
+umask 077
+
+task_app_ref='app/org.lanbridge.LanBridge/x86_64/stable'
+task_runtime_ref='runtime/org.kde.Platform/x86_64/6.11'
+task_app_commit='@APP_COMMIT@'
+task_runtime_commit='@RUNTIME_COMMIT@'
+task_payload_sha256='@PAYLOAD_SHA256@'
+task_payload_bytes='@PAYLOAD_BYTES@'
+task_payload_line='@PAYLOAD_LINE@'
+task_verify_only=false
+task_tmp=''
+
+task_fail() { printf '错误：%s\n' "$*" >&2; exit 1; }
+# Invoked by the EXIT trap.
+# shellcheck disable=SC2329
+task_cleanup() {
+  if [[ -n $task_tmp ]]; then rm -rf -- "$task_tmp"; fi
+}
+# Invoked by the ERR trap.
+# shellcheck disable=SC2329
+task_on_error() {
+  printf '离线安装失败（退出码 %s），请检查上方错误。\n' "$1" >&2
+  exit "$1"
+}
+trap 'task_cleanup' EXIT
+trap 'task_on_error "$?"' ERR
+
+case ${1:-} in
+  --help|-h)
+    printf '%s\n' \
+      'LanBridge 完整离线安装器（Ubuntu 24.04 x86_64）' \
+      '用法：bash 安装器.run [--verify-only | --help]' \
+      '请以普通用户运行；不要对整个安装器使用 sudo。' \
+      '缺少 Flatpak 时，仅通过 sudo 安装包内缺少的本机依赖，不联网、不升级已有系统包。' \
+      '--verify-only 只验证内含文件，不安装依赖或应用。' \
+      '安装不要求图形会话；运行 LanBridge 需要 GNOME X11。安装后请手动打开软件。'
+    exit 0 ;;
+  --verify-only) [[ $# == 1 ]] || task_fail '参数过多。'; task_verify_only=true ;;
+  '') [[ $# == 0 ]] || task_fail '无效参数。' ;;
+  *) task_fail '未知参数，请使用 --help 查看用法。' ;;
+esac
+
+[[ $(id -u) != 0 ]] || task_fail '请以普通用户运行，不要对整个安装器使用 sudo。'
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || task_fail '此安装器仅支持 Ubuntu 24.04 x86_64。'
+task_os_id=''
+task_os_version=''
+while IFS='=' read -r task_key task_value; do
+  task_value=${task_value#\"}; task_value=${task_value%\"}
+  case $task_key in
+    ID) task_os_id=$task_value ;;
+    VERSION_ID) task_os_version=$task_value ;;
+  esac
+done < <(cat /etc/os-release)
+[[ $task_os_id == ubuntu && $task_os_version == 24.04 ]] || task_fail '此安装器仅支持 Ubuntu 24.04。'
+[[ ! -e /.flatpak-info ]] || task_fail '请在本机终端运行，不能在 Flatpak 沙箱中安装。'
+for task_tool in tail wc sha256sum tar gzip mktemp rm mkdir flock; do
+  command -v "$task_tool" >/dev/null || task_fail "缺少本机工具：$task_tool。"
+done
+[[ $task_payload_bytes =~ ^[1-9][0-9]*$ && $task_payload_line =~ ^[1-9][0-9]*$ &&
+   $task_payload_sha256 =~ ^[0-9a-f]{64}$ && $task_app_commit =~ ^[0-9a-f]{64}$ &&
+   $task_runtime_commit =~ ^[0-9a-f]{64}$ ]] || task_fail '安装器元数据无效。'
+
+# Verify the complete appended payload before extracting or changing installed software.
+task_tmp=$(mktemp -d "${TMPDIR:-/tmp}/lanbridge-offline.XXXXXXXX")
+tail -n +"$task_payload_line" -- "${BASH_SOURCE[0]}" > "$task_tmp/payload.tar.gz"
+task_actual_bytes=$(wc -c < "$task_tmp/payload.tar.gz")
+[[ $task_actual_bytes -eq $task_payload_bytes ]] || task_fail '安装器内容长度不符，文件可能被截断或损坏。'
+printf '%s  %s\n' "$task_payload_sha256" "$task_tmp/payload.tar.gz" | sha256sum --check --status - ||
+  task_fail '安装器内容校验失败，请重新取得完整安装器。'
+mkdir -- "$task_tmp/content"
+tar --extract --gzip --file "$task_tmp/payload.tar.gz" --directory "$task_tmp/content" \
+  --no-same-owner --no-same-permissions
+[[ -f $task_tmp/content/SHA256SUMS && -s $task_tmp/content/MANIFEST.json &&
+   -f $task_tmp/content/app/lanbridge.flatpak && -f $task_tmp/content/runtime/platform.flatpak &&
+   -d $task_tmp/content/host-debs ]] || task_fail '安装器缺少必要文件。'
+(cd -- "$task_tmp/content" && sha256sum --check --strict SHA256SUMS) ||
+  task_fail '内含文件校验失败，尚未安装任何软件。'
+printf '安装器及内含文件校验通过。\n'
+if $task_verify_only; then exit 0; fi
+
+task_cache=${XDG_CACHE_HOME:-"$HOME/.cache"}/LanBridge
+mkdir -p -- "$task_cache"
+exec 9> "$task_cache/offline-install.lock"
+flock --nonblock 9 || task_fail '另一个离线安装器正在运行，请稍后重试。'
+
+if ! command -v flatpak >/dev/null; then
+  for task_tool in dpkg-deb dpkg-query apt-get sudo cp; do
+    command -v "$task_tool" >/dev/null || task_fail "安装离线依赖需要本机工具：$task_tool。"
+  done
+  task_debs=()
+  shopt -s nullglob
+  for task_deb in "$task_tmp/content/host-debs/"*.deb; do
+    task_package=$(dpkg-deb -f "$task_deb" Package) || task_fail '无法读取内含依赖包信息。'
+    [[ $task_package =~ ^[a-z0-9][a-z0-9+.-]*$ ]] || task_fail '内含依赖包名称无效。'
+    task_status=$(dpkg-query -W '-f=${db:Status-Status}' "$task_package" 2>/dev/null) || task_status=''
+    if [[ $task_status != installed ]]; then task_debs+=("$task_deb"); fi
+  done
+  ((${#task_debs[@]} > 0)) || task_fail '缺少 Flatpak，但内含依赖中没有可安装的缺失包。'
+  # With --no-download, APT also needs explicit local packages in its archives cache.
+  task_apt_archives="$task_tmp/apt-archives"
+  mkdir -p -- "$task_apt_archives/partial"
+  cp -- "${task_debs[@]}" "$task_apt_archives/"
+  task_apt_options=(-o "Dir::Cache::archives=$task_apt_archives/" \
+    --no-download --no-remove --no-install-recommends --no-upgrade)
+  if ! LC_ALL=C apt-get --simulate "${task_apt_options[@]}" install "${task_debs[@]}" > "$task_tmp/apt-plan.txt" 2>&1; then
+    cat -- "$task_tmp/apt-plan.txt" >&2
+    task_fail '离线依赖模拟安装失败，未修改系统。'
+  fi
+  task_unsafe_plan=false
+  while read -r task_action task_package task_detail; do
+    if [[ $task_action == Remv || ( $task_action == Inst && $task_detail == \[* ) ]]; then
+      task_unsafe_plan=true
+      break
+    fi
+  done < "$task_tmp/apt-plan.txt"
+  if $task_unsafe_plan; then
+    cat -- "$task_tmp/apt-plan.txt" >&2
+    task_fail '依赖方案会移除或更改已有系统包，已停止；请手动准备 Flatpak。'
+  fi
+  printf '仅安装缺少的离线依赖，系统可能要求本机管理员密码。\n'
+  LC_ALL=C sudo -- apt-get "${task_apt_options[@]}" -y install "${task_debs[@]}" ||
+    task_fail '离线依赖安装未完成，请检查本机授权或依赖错误后重试。'
+  command -v flatpak >/dev/null || task_fail '依赖安装后仍找不到 Flatpak。'
+fi
+
+task_user_commit() { flatpak info --user --show-commit "$1" 2>/dev/null || true; }
+task_current_app=$(task_user_commit "$task_app_ref")
+task_current_runtime=$(task_user_commit "$task_runtime_ref")
+task_runtime_scope=user
+if [[ -n $task_current_runtime && $task_current_runtime != "$task_runtime_commit" ]]; then
+  task_fail '当前用户已有相同分支但不同提交的 KDE 运行环境；为保护其他应用，拒绝覆盖。'
+fi
+if [[ -z $task_current_runtime ]]; then
+  # A read-only system query permits reuse; no system Flatpak installation is changed.
+  task_system_runtime=$(flatpak info --system --show-commit "$task_runtime_ref" 2>/dev/null || true)
+  if [[ $task_system_runtime == "$task_runtime_commit" ]]; then
+    task_current_runtime=$task_system_runtime
+    task_runtime_scope=system
+  fi
+fi
+if [[ $task_current_app == "$task_app_commit" && $task_current_runtime == "$task_runtime_commit" ]]; then
+  printf '已安装相同的 LanBridge 和精确运行环境，无需变更。\n'
+  exit 0
+fi
+
+# Flatpak 1.14 ps has no --user option and enumerates the current user's instances.
+task_running_apps=$(flatpak ps --columns=application) || task_fail '无法确认运行状态，已停止安装。'
+while read -r task_running_app _task_rest; do
+  [[ $task_running_app != org.lanbridge.LanBridge ]] ||
+    task_fail 'LanBridge 正在运行。请先在软件内停止共享并正常退出，再重试安装。'
+done <<< "$task_running_apps"
+task_install_options=(--user --bundle --or-update --no-pull --no-deps --no-related --noninteractive)
+if [[ $task_current_runtime != "$task_runtime_commit" ]]; then
+  flatpak install "${task_install_options[@]}" "$task_tmp/content/runtime/platform.flatpak"
+  [[ $(task_user_commit "$task_runtime_ref") == "$task_runtime_commit" ]] ||
+    task_fail '运行环境安装后的提交与锁定值不符，已停止。'
+fi
+if [[ $task_current_app != "$task_app_commit" ]]; then
+  flatpak install "${task_install_options[@]}" "$task_tmp/content/app/lanbridge.flatpak"
+fi
+[[ $(task_user_commit "$task_app_ref") == "$task_app_commit" ]] || task_fail '应用安装后的提交与锁定值不符。'
+if [[ $task_runtime_scope == system ]]; then
+  task_final_runtime=$(flatpak info --system --show-commit "$task_runtime_ref" 2>/dev/null || true)
+else
+  task_final_runtime=$(task_user_commit "$task_runtime_ref")
+fi
+[[ $task_final_runtime == "$task_runtime_commit" ]] || task_fail '最终运行环境提交与锁定值不符。'
+printf '离线安装完成。请在 GNOME X11 会话中手动打开 LanBridge。\n'
+exit 0
+# This marker is data for the packager; execution always exits above it.
+# shellcheck disable=SC2317
+__LANBRIDGE_PAYLOAD__

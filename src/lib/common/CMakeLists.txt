@@ -19,6 +19,8 @@ add_library(common STATIC
   Hotkey.h
   I18N.h
   I18N.cpp
+  InputDiagnostics.cpp
+  InputDiagnostics.h
   KeyModifierID.h
   KeyboardModifier.h
   KeySequence.h

@@ -466,7 +466,8 @@ jobs:
 
   release:
     needs: ci-passed
-    if: (github.ref == 'refs/heads/master') || (contains(github.ref, '/tags/v'))
+    # 上游发布和 Homebrew 跨仓通知仅供 Deskflow 官方仓库使用。
+    if: github.repository == 'deskflow/deskflow' && ((github.ref == 'refs/heads/master') || contains(github.ref, '/tags/v'))
     runs-on: ubuntu-latest
 
     steps:

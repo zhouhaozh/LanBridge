@@ -5,8 +5,31 @@ add_subdirectory(config)
 add_subdirectory(core)
 
 create_test(
+  NAME StartupManagerTests
+  DEPENDS gui
+  SOURCE StartupManagerTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/gui"
+)
+
+if(APPLE)
+  create_test(
+    NAME StartupManagerMacTests
+    DEPENDS gui
+    SOURCE StartupManagerMacTests.mm
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/gui"
+  )
+endif()
+
+create_test(
   NAME LoggerTests
   DEPENDS gui
   SOURCE LoggerTests.cpp
+  WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/gui"
+)
+
+create_test(
+  NAME DiagnosticTests
+  DEPENDS gui
+  SOURCE DiagnosticTests.cpp
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/gui"
 )

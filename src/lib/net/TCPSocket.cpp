@@ -121,10 +121,15 @@ uint32_t TCPSocket::read(void *buffer, uint32_t n)
   if (uint32_t size = m_inputBuffer.getSize(); n > size) {
     n = size;
   }
+  // A read reports one origin. Preserve arrival boundaries so later packets
+  // do not inherit an earlier packet's queue wait when the buffer is batched.
+  if (const auto span = m_inputTimes.frontSize(); span && n > span)
+    n = static_cast<uint32_t>(span);
   if (buffer != nullptr && n != 0) {
     memcpy(buffer, m_inputBuffer.peek(n), n);
   }
   m_inputBuffer.pop(n);
+  m_lastReadTimestamp = m_inputTimes.consume(n);
 
   // if no more data and we cannot read or write then send disconnected
   if (n > 0 && m_inputBuffer.getSize() == 0 && !m_readable && !m_writable) {
@@ -155,6 +160,10 @@ void TCPSocket::write(const void *buffer, uint32_t n)
     // copy data to the output buffer
     wasEmpty = (m_outputBuffer.getSize() == 0);
     m_outputBuffer.write(buffer, n);
+    if (deskflow::InputDiagnostics::enabled()) {
+      m_outputTimes.append(n, deskflow::InputDiagnostics::sendOrigin());
+      deskflow::InputDiagnostics::observeQueue(m_outputBuffer.getSize());
+    }
 
     // there's data to write
     m_flushed = false;
@@ -230,6 +239,12 @@ bool TCPSocket::isReady() const
 {
   Lock lock(&m_mutex);
   return (m_inputBuffer.getSize() > 0);
+}
+
+uint64_t TCPSocket::lastReadTimestamp() const
+{
+  Lock lock(&m_mutex);
+  return m_lastReadTimestamp;
 }
 
 bool TCPSocket::isFatal() const
@@ -312,6 +327,10 @@ TCPSocket::JobResult TCPSocket::doRead()
     // slurp up as much as possible
     do {
       m_inputBuffer.write(buffer, static_cast<uint32_t>(bytesRead));
+      if (deskflow::InputDiagnostics::enabled()) {
+        m_inputTimes.append(bytesRead, deskflow::InputDiagnostics::now());
+        deskflow::InputDiagnostics::observeQueue(m_inputBuffer.getSize());
+      }
 
       if (m_inputBuffer.getSize() > s_maxInputBufferSize) {
         break;
@@ -408,6 +427,10 @@ void TCPSocket::sendEvent(EventTypes type)
 void TCPSocket::discardWrittenData(int bytesWrote)
 {
   m_outputBuffer.pop(bytesWrote);
+  const auto finished = deskflow::InputDiagnostics::now();
+  m_outputTimes.consume(bytesWrote, [finished](uint64_t start) {
+    deskflow::InputDiagnostics::record(deskflow::InputDiagnostics::Stage::CaptureToSend, start, finished);
+  });
   if (m_outputBuffer.getSize() == 0) {
     sendEvent(EventTypes::StreamOutputFlushed);
     m_flushed = true;
@@ -425,12 +448,15 @@ void TCPSocket::onConnected()
 void TCPSocket::onInputShutdown()
 {
   m_inputBuffer.pop(m_inputBuffer.getSize());
+  m_inputTimes.clear();
+  m_lastReadTimestamp = 0;
   m_readable = false;
 }
 
 void TCPSocket::onOutputShutdown()
 {
   m_outputBuffer.pop(m_outputBuffer.getSize());
+  deskflow::InputDiagnostics::discarded(m_outputTimes.clear());
   m_writable = false;
 
   // we're now flushed

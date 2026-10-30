@@ -6,9 +6,11 @@
 
 #pragma once
 
+#include <QHash>
 #include <QHostAddress>
 #include <QList>
 #include <QObject>
+#include <QStringList>
 
 class QTimer;
 namespace deskflow::gui {
@@ -51,6 +53,13 @@ public:
    * @return IP address list
    */
   static QStringList validAddresses();
+
+  // interfaceAddresses contains active physical interfaces only. Keep every
+  // address, preferring their lowest-metric default IPv4 route; invalid or
+  // unavailable route data preserves the order.
+  static QStringList preferDefaultIpv4Route(
+      QStringList addresses, const QByteArray &routeTable, const QHash<QString, QStringList> &interfaceAddresses
+  );
 
   /**
    * @brief Check if a network interface is virtual

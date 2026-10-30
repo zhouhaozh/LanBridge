@@ -12,4 +12,10 @@ class NetworkMonitorTests : public QObject
 private Q_SLOTS:
   // Test are run in order top to bottom
   void testVirtualInterface();
+  void defaultRoutePrefersWifiOverLowerNumberedEthernet();
+  void defaultRouteUsesLowestMetricAndPreservesTies();
+  void virtualDefaultRouteKeepsPhysicalAddressesFirst();
+  void missingOrMalformedRoutesPreserveOrder_data();
+  void missingOrMalformedRoutesPreserveOrder();
+  void malformedRouteCannotOverrideValidDefault();
 };

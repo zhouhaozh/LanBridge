@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include "common/InputDiagnostics.h"
 #include "io/StreamBuffer.h"
 #include "io/StreamFilter.h"
 
@@ -27,6 +28,7 @@ public:
   // IStream overrides
   void close() override;
   uint32_t read(void *buffer, uint32_t n) override;
+  uint64_t lastReadTimestamp() const override;
   void write(const void *buffer, uint32_t n) override;
   void shutdownInput() override;
   bool isReady() const override;
@@ -45,6 +47,9 @@ private:
   mutable std::mutex m_mutex;
   uint32_t m_size = 0;
   StreamBuffer m_buffer;
+  deskflow::TimedByteQueue m_bufferTimes;
+  uint64_t m_packetTimestamp = 0;
+  uint64_t m_lastReadTimestamp = 0;
   bool m_inputShutdown = false;
   IEventQueue *m_events = nullptr;
 };

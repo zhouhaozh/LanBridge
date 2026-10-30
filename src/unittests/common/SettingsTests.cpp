@@ -8,6 +8,7 @@
 
 #include <QFile>
 #include <QSignalSpy>
+#include <QTemporaryDir>
 
 void SettingsTests::initTestCase()
 {
@@ -59,6 +60,9 @@ void SettingsTests::checkValidSettings()
   const auto keysToCheck = QRegularExpression(QLatin1String("[^%1]").arg(Settings::Core::ComputerName));
   const auto validKeys = Settings::validKeys().filter(keysToCheck);
   for (const auto &setting : validKeys) {
+    if (setting == Settings::Security::TlsEnabled || setting == Settings::Security::CheckPeers ||
+        setting == Settings::Client::DynamicConnectionRetry)
+      continue; // These safety constraints are deliberately immutable.
     const auto value = Settings::value(setting).toString();
     QCOMPARE(Settings::defaultValue(setting).toString(), value);
 
@@ -109,6 +113,110 @@ void SettingsTests::checkClearState()
   Settings::clearState();
 
   QVERIFY(!Settings::value(Settings::Gui::WindowGeometry).toRect().isValid());
+}
+
+void SettingsTests::lanBridgeDefaults()
+{
+  Settings::setValue(Settings::Server::EnableClipboard);
+  QCOMPARE(Settings::defaultValue(Settings::Server::EnableClipboard).toBool(), true);
+  QCOMPARE(Settings::value(Settings::Server::EnableClipboard).toBool(), true);
+  QCOMPARE(Settings::defaultValue(Settings::Server::EnableHeartbeat).toBool(), true);
+  QCOMPARE(Settings::defaultValue(Settings::Server::Heartbeat).toInt(), 1000);
+  QCOMPARE(Settings::defaultValue(Settings::Security::TlsEnabled).toBool(), true);
+  QCOMPARE(Settings::defaultValue(Settings::Security::CheckPeers).toBool(), true);
+  QCOMPARE(Settings::defaultValue(Settings::Client::LanguageSync).toBool(), false);
+  QCOMPARE(Settings::defaultValue(Settings::Client::RemoteHost).toString(), QString("192.168.50.219"));
+  QCOMPARE(Settings::defaultValue(Settings::LanBridge::DiagnosticsEnabled).toBool(), false);
+  QCOMPARE(Settings::defaultValue(Settings::LanBridge::MacPosition).toString(), QString("right"));
+#ifdef Q_OS_MACOS
+  QCOMPARE(Settings::defaultValue(Settings::Core::ComputerName).toString(), QString("mac"));
+  QCOMPARE(Settings::defaultValue(Settings::Core::CoreMode).toInt(), int(Settings::Client));
+#else
+  QCOMPARE(Settings::defaultValue(Settings::Core::ComputerName).toString(), QString("linux"));
+  QCOMPARE(Settings::defaultValue(Settings::Core::CoreMode).toInt(), int(Settings::Server));
+#endif
+}
+
+void SettingsTests::clipboardCanBeEnabledAndDisabled()
+{
+  const auto key = Settings::Server::EnableClipboard;
+  for (const bool enabled : {true, false, true}) {
+    Settings::setValue(key, enabled);
+    QCOMPARE(Settings::value(key).toBool(), enabled);
+    QSettings stored(Settings::settingsFile(), QSettings::IniFormat);
+    QCOMPARE(stored.value(key).toBool(), enabled);
+  }
+}
+
+void SettingsTests::clipboardImportPreservesPreference_data()
+{
+  QTest::addColumn<bool>("enabled");
+  QTest::newRow("enabled") << true;
+  QTest::newRow("disabled") << false;
+}
+
+void SettingsTests::clipboardImportPreservesPreference()
+{
+  QFETCH(bool, enabled);
+  QTemporaryDir importDirectory;
+  QVERIFY(importDirectory.isValid());
+  const auto key = Settings::Server::EnableClipboard;
+  const auto originalSettings = Settings::settingsFile();
+  QSettings imported(importDirectory.filePath("imported.conf"), QSettings::IniFormat);
+  imported.setValue(key, enabled);
+  imported.sync();
+
+  Settings::setSettingsFile(imported.fileName());
+  const bool actual = Settings::value(key).toBool();
+  Settings::save(false);
+  imported.sync();
+  const bool persisted = imported.value(key).toBool();
+  Settings::setSettingsFile(originalSettings);
+
+  QCOMPARE(actual, enabled);
+  QCOMPARE(persisted, enabled);
+}
+
+void SettingsTests::restoreLanBridgeDefaults()
+{
+  Settings::setValue(Settings::Server::EnableClipboard, false);
+  QCOMPARE(Settings::value(Settings::Server::EnableClipboard).toBool(), false);
+  Settings::setValue(Settings::Server::EnableHeartbeat, false);
+  Settings::setValue(Settings::Server::Heartbeat, 5000);
+  Settings::setValue(Settings::LanBridge::DiagnosticsEnabled, true);
+  Settings::restoreDefaultSettings();
+  QCOMPARE(Settings::value(Settings::Server::EnableClipboard).toBool(), true);
+  QCOMPARE(Settings::value(Settings::Server::EnableHeartbeat).toBool(), true);
+  QCOMPARE(Settings::value(Settings::Server::Heartbeat).toInt(), 1000);
+  QCOMPARE(Settings::value(Settings::LanBridge::DiagnosticsEnabled).toBool(), false);
+}
+
+void SettingsTests::tlsCannotBeDisabled()
+{
+  for (const auto &key : {Settings::Security::TlsEnabled, Settings::Security::CheckPeers}) {
+    Settings::setValue(key, false);
+    QCOMPARE(Settings::value(key).toBool(), true);
+    QSettings imported(Settings::settingsFile(), QSettings::IniFormat);
+    imported.setValue(key, false);
+    imported.sync();
+    QCOMPARE(Settings::value(key).toBool(), true);
+    Settings::restoreDefaultSettings();
+    QCOMPARE(Settings::value(key).toBool(), true);
+  }
+}
+
+void SettingsTests::dynamicRetryCannotBeEnabled()
+{
+  const auto key = Settings::Client::DynamicConnectionRetry;
+  QCOMPARE(Settings::defaultValue(key).toBool(), false);
+  Settings::setValue(key, true);
+  QCOMPARE(Settings::value(key).toBool(), false);
+  QSettings imported(Settings::settingsFile(), QSettings::IniFormat);
+  imported.setValue(key, true);
+  imported.sync();
+  QCOMPARE(Settings::value(key).toBool(), false);
+  Settings::restoreDefaultSettings();
+  QCOMPARE(Settings::value(key).toBool(), false);
 }
 
 QTEST_MAIN(SettingsTests)

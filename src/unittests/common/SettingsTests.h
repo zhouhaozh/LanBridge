@@ -25,6 +25,13 @@ private Q_SLOTS:
   void checkCleanComputerName();
   void checkCleanComputerName_LongName();
   void checkClearState();
+  void lanBridgeDefaults();
+  void clipboardCanBeEnabledAndDisabled();
+  void clipboardImportPreservesPreference_data();
+  void clipboardImportPreservesPreference();
+  void restoreLanBridgeDefaults();
+  void tlsCannotBeDisabled();
+  void dynamicRetryCannotBeEnabled();
 
 private:
   inline static const QString m_settingsPathTemp = QStringLiteral("tmp/test");

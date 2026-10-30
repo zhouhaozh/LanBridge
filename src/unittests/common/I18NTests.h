@@ -11,6 +11,7 @@ class I18NTests : public QObject
   Q_OBJECT
 private Q_SLOTS:
   void initTestCase();
+  void qtLibraryTranslationsTest();
   void creationTest();
   void detectedLangTest();
   void check639NameTest_validMapValues();

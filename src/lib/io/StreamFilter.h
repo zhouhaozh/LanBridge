@@ -37,6 +37,10 @@ public:
   // Override as necessary.  getEventTarget returns a pointer to this.
   void close() override;
   uint32_t read(void *buffer, uint32_t n) override;
+  uint64_t lastReadTimestamp() const override
+  {
+    return m_stream->lastReadTimestamp();
+  }
   void write(const void *buffer, uint32_t n) override;
   void flush() override;
   void shutdownInput() override;

@@ -10,6 +10,24 @@
 
 #include "deskflow/Clipboard.h"
 
+#include <cstdint>
+#include <limits>
+#include <vector>
+
+namespace {
+class RecordingClipboard : public Clipboard
+{
+public:
+  void add(Format format, const std::string &data) override
+  {
+    addedFormats.push_back(format);
+    Clipboard::add(format, data);
+  }
+
+  std::vector<Format> addedFormats;
+};
+} // namespace
+
 void ClipboardTests::initTestCase()
 {
   m_log.setFilter(LogLevel::Level::Verbose);
@@ -212,6 +230,81 @@ void ClipboardTests::unMarshalTextAndHtml()
   clipboard.open(0);
   QCOMPARE(clipboard.get(IClipboard::Format::Text), kTestString1);
   QCOMPARE(clipboard.get(IClipboard::Format::HTML), kTestString2);
+  clipboard.close();
+}
+
+void ClipboardTests::unMarshalUnknownFormatPreservesValidFormats_data()
+{
+  QTest::addColumn<quint32>("formatID");
+  QTest::newRow("unknown-format") << quint32(IClipboard::Format::TotalFormats);
+  QTest::newRow("largest-signed") << quint32(0x7fffffffu);
+  QTest::newRow("sign-bit") << quint32(0x80000000u);
+  QTest::newRow("all-bits") << quint32(0xffffffffu);
+}
+
+void ClipboardTests::unMarshalUnknownFormatPreservesValidFormats()
+{
+  QFETCH(quint32, formatID);
+  std::string data;
+  const auto appendUInt32 = [&data](uint32_t value) {
+    for (int shift = 24; shift >= 0; shift -= 8)
+      data.push_back(static_cast<char>((value >> shift) & 0xff));
+  };
+  const auto appendFormat = [&data, &appendUInt32](uint32_t format, const std::string &value) {
+    appendUInt32(format);
+    appendUInt32(static_cast<uint32_t>(value.size()));
+    data += value;
+  };
+  appendUInt32(4);
+  appendFormat(formatID, "ignored");
+  appendFormat(uint32_t(IClipboard::Format::Text), kTestString1);
+  appendFormat(uint32_t(IClipboard::Format::HTML), kTestString2);
+  appendFormat(uint32_t(IClipboard::Format::Bitmap), "bitmap bytes");
+
+  RecordingClipboard clipboard;
+  clipboard.unmarshall(data, 17);
+
+  // The decoder must reject invalid IDs before calling any clipboard backend.
+  QCOMPARE(clipboard.addedFormats.size(), size_t(3));
+  QCOMPARE(clipboard.addedFormats[0], IClipboard::Format::Text);
+  QCOMPARE(clipboard.addedFormats[1], IClipboard::Format::HTML);
+  QCOMPARE(clipboard.addedFormats[2], IClipboard::Format::Bitmap);
+  QVERIFY(clipboard.open(17));
+  QCOMPARE(clipboard.get(IClipboard::Format::Text), kTestString1);
+  QCOMPARE(clipboard.get(IClipboard::Format::HTML), kTestString2);
+  QCOMPARE(clipboard.get(IClipboard::Format::Bitmap), std::string("bitmap bytes"));
+  clipboard.close();
+}
+
+void ClipboardTests::invalidFormatDoesNotIndexStorage_data()
+{
+  QTest::addColumn<int>("formatID");
+  QTest::newRow("negative") << -1;
+  QTest::newRow("lowest-signed") << std::numeric_limits<int>::min();
+  QTest::newRow("unknown-format") << int(IClipboard::Format::TotalFormats);
+  QTest::newRow("largest-signed") << std::numeric_limits<int>::max();
+}
+
+void ClipboardTests::invalidFormatDoesNotIndexStorage()
+{
+  QFETCH(int, formatID);
+  const auto invalidFormat = static_cast<IClipboard::Format>(formatID);
+  Clipboard clipboard;
+  QVERIFY(clipboard.open(0));
+  clipboard.add(IClipboard::Format::Text, kTestString1);
+  clipboard.add(IClipboard::Format::HTML, kTestString2);
+  clipboard.add(IClipboard::Format::Bitmap, "bitmap bytes");
+
+  clipboard.add(invalidFormat, "must not be stored");
+
+  QVERIFY(!clipboard.has(invalidFormat));
+  QCOMPARE(clipboard.get(invalidFormat), std::string());
+  QVERIFY(clipboard.has(IClipboard::Format::Text));
+  QVERIFY(clipboard.has(IClipboard::Format::HTML));
+  QVERIFY(clipboard.has(IClipboard::Format::Bitmap));
+  QCOMPARE(clipboard.get(IClipboard::Format::Text), kTestString1);
+  QCOMPARE(clipboard.get(IClipboard::Format::HTML), kTestString2);
+  QCOMPARE(clipboard.get(IClipboard::Format::Bitmap), std::string("bitmap bytes"));
   clipboard.close();
 }
 

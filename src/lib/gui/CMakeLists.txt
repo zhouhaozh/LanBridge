@@ -10,6 +10,7 @@ if(APPLE)
   set (platform_sources
     OSXHelpers.h
     OSXHelpers.mm
+    StartupManager.mm
   )
 endif()
 
@@ -29,6 +30,8 @@ add_library(${target} STATIC
   Messages.cpp
   Messages.h
   StyleUtils.h
+  StartupManager.cpp
+  StartupManager.h
   TlsUtility.cpp
   TlsUtility.h
   VersionChecker.cpp
@@ -124,3 +127,10 @@ target_link_libraries(${target}
     net
     Qt6::Widgets
 )
+
+if(APPLE)
+  target_link_libraries(${target} PUBLIC "-framework ServiceManagement" "-framework Foundation")
+elseif(UNIX)
+  find_package(Qt6 REQUIRED COMPONENTS DBus)
+  target_link_libraries(${target} PUBLIC Qt6::DBus)
+endif()

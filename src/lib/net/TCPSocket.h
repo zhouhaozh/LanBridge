@@ -46,6 +46,7 @@ public:
 
   // IStream overrides
   uint32_t read(void *buffer, uint32_t n) override;
+  uint64_t lastReadTimestamp() const override;
   void write(const void *buffer, uint32_t n) override;
   void flush() override;
   void shutdownInput() override;
@@ -126,6 +127,9 @@ protected:
 
   StreamBuffer m_inputBuffer;
   StreamBuffer m_outputBuffer;
+  deskflow::TimedByteQueue m_inputTimes;
+  deskflow::TimedByteQueue m_outputTimes;
+  uint64_t m_lastReadTimestamp = 0;
 
 private:
   void init();

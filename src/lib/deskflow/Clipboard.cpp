@@ -56,6 +56,10 @@ void Clipboard::add(Format format, const std::string &data)
   }
 
   const auto formatID = static_cast<int>(format);
+  if (formatID < 0 || formatID >= static_cast<int>(Format::TotalFormats)) {
+    LOG_WARN("cannot add invalid clipboard format: %d", formatID);
+    return;
+  }
   m_data[formatID] = data;
   m_added[formatID] = true;
 }
@@ -95,7 +99,12 @@ bool Clipboard::has(Format format) const
     LOG_WARN("cannot check for clipboard format, not open");
     return false;
   }
-  return m_added[static_cast<int>(format)];
+  const auto formatID = static_cast<int>(format);
+  if (formatID < 0 || formatID >= static_cast<int>(Format::TotalFormats)) {
+    LOG_WARN("cannot check invalid clipboard format: %d", formatID);
+    return false;
+  }
+  return m_added[formatID];
 }
 
 std::string Clipboard::get(Format format) const
@@ -105,7 +114,12 @@ std::string Clipboard::get(Format format) const
     LOG_WARN("cannot get clipboard format, not open");
     return "";
   }
-  return m_data[static_cast<int>(format)];
+  const auto formatID = static_cast<int>(format);
+  if (formatID < 0 || formatID >= static_cast<int>(Format::TotalFormats)) {
+    LOG_WARN("cannot get invalid clipboard format: %d", formatID);
+    return "";
+  }
+  return m_data[formatID];
 }
 
 void Clipboard::unmarshall(const std::string &data, Time time)

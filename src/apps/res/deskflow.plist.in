@@ -41,7 +41,7 @@
 
 	<!-- Local Lan Entitlements -->
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>This app uses local network permissions for communication between a Deskflow server and clients.</string>
+	<string>LanBridge 通过局域网连接您的 Linux 和 Mac，共享键盘和鼠标。</string>
 	<key>com.apple.security.networking.local</key>
 	<true/>
 

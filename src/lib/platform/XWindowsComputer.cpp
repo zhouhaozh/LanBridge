@@ -1087,6 +1087,9 @@ Bool XWindowsComputer::findKeyEvent(Display *, XEvent *xevent, XPointer arg)
 
 void XWindowsComputer::handleSystemEvent(const Event &event)
 {
+  // Start before translating native input, then carry this origin through the
+  // Deskflow event queue, input filters, packet buffer and socket writes.
+  deskflow::InputDiagnostics::SendScope timing(deskflow::InputDiagnostics::now());
   auto *xevent = static_cast<XEvent *>(event.getData());
   assert(xevent != nullptr);
 
