@@ -82,7 +82,10 @@ jobs:
             bash -n "$task_script"
           done
           if [[ "$RUNNER_OS" == "Linux" ]]; then
-            shellcheck deploy/lanbridge/*.sh deploy/lanbridge/*.sh.in
+            export LC_ALL=C.UTF-8
+            shellcheck deploy/lanbridge/*.sh
+            # Debian 的 ShellCheck 0.10 会误判模板中的间接 trap 回调不可达。
+            shellcheck --exclude=SC2317 deploy/lanbridge/*.sh.in
           fi
           python3 -m unittest discover -s deploy/lanbridge/tests -p 'test_*.py' -v \
             2>&1 | tee build/ci/python-tests.log
