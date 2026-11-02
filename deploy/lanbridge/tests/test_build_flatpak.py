@@ -38,9 +38,28 @@ class FlatpakBuildTests(unittest.TestCase):
             "PATH": str(self.bin) + os.pathsep + os.environ["PATH"],
             "LANBRIDGE_STUB_LOG": str(self.log),
         }
+        self.environment.pop("LANBRIDGE_VERSION", None)
+        self.manifest = {
+            "app-id": "org.lanbridge.LanBridge", "branch": "stable",
+            "modules": [
+                {"name": "libei", "config-opts": ["-Dtests=disabled"]},
+                {
+                    "name": "lanbridge",
+                    "config-opts": ["-DBUILD_TESTS=ON", "-DSKIP_BUILD_TESTS=ON",
+                                    "-DBUILD_X11_SUPPORT=ON", "-DLANBRIDGE_VERSION=old"],
+                    "run-tests": True,
+                    "test-commands": ["QT_QPA_PLATFORM=minimal ctest --test-dir src/unittests -LE interactive --no-tests=error"],
+                    "sources": [{"type": "dir", "path": "../../../", "skip": [".git", "build", "dist"]}],
+                },
+            ],
+        }
+        self.environment["LANBRIDGE_STUB_MANIFEST"] = json.dumps(self.manifest)
         self.make_stub("uname", 'print(os.environ.get("LANBRIDGE_STUB_OS", "Linux"))')
         self.make_stub(
             "flatpak-builder",
+            'if sys.argv[1] == "--show-manifest":\n'
+            '    print(os.environ["LANBRIDGE_STUB_MANIFEST"])\n'
+            '    raise SystemExit(int(os.environ.get("LANBRIDGE_STUB_SHOW_EXIT", "0")))\n'
             'raise SystemExit(int(os.environ.get("LANBRIDGE_STUB_BUILD_EXIT", "0")))',
         )
         self.make_stub(
@@ -50,7 +69,7 @@ class FlatpakBuildTests(unittest.TestCase):
             'elif sys.argv[1] == "build-bundle":\n'
             '    status = int(os.environ.get("LANBRIDGE_STUB_BUNDLE_EXIT", "0"))\n'
             '    if status == 0:\n'
-            '        Path(sys.argv[3]).write_bytes(b"stub flatpak bundle")\n'
+            '        Path(sys.argv[4]).write_bytes(b"stub flatpak bundle")\n'
             '    raise SystemExit(status)\n'
             'else:\n'
             '    raise SystemExit("unexpected flatpak invocation")',
@@ -97,7 +116,8 @@ class FlatpakBuildTests(unittest.TestCase):
         bundle = self.output / "lanbridge-1.27.0-linux-x86_64.flatpak"
         self.assertEqual(
             calls[-1]["args"],
-            ["build-bundle", str(self.output / "repo"), str(bundle), "org.lanbridge.LanBridge", "stable"],
+            ["build-bundle", "--runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo",
+             str(self.output / "repo"), str(bundle), "org.lanbridge.LanBridge", "stable"],
         )
         self.assertTrue(bundle.is_file())
 
@@ -107,6 +127,60 @@ class FlatpakBuildTests(unittest.TestCase):
         self.assertFalse(any(call["args"][0] == "build-bundle" for call in self.commands()))
         self.assertFalse(list(self.output.glob("*.flatpak")))
         self.assertNotIn("已构建", result.stdout)
+
+    def test_release_version_is_embedded_and_bundle_name_matches(self):
+        result = self.run_build(LANBRIDGE_VERSION="2.3.4-rc.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = self.commands()
+        shown = next(call for call in calls if call["tool"] == "flatpak-builder"
+                     and call["args"][0] == "--show-manifest")
+        self.assertEqual(shown["args"], ["--show-manifest", str(self.root / MANIFEST)])
+        build = next(call for call in calls if call["tool"] == "flatpak-builder"
+                     and call["args"][0] == "--user")
+        generated = Path(build["args"][-1])
+        self.assertEqual(generated.parent, self.output)
+        manifest = json.loads(generated.read_text())
+        module = manifest["modules"][-1]
+        self.assertEqual(manifest["modules"][0], self.manifest["modules"][0])
+        self.assertEqual(module["config-opts"], ["-DBUILD_TESTS=ON", "-DSKIP_BUILD_TESTS=ON",
+                                               "-DBUILD_X11_SUPPORT=ON", "-DLANBRIDGE_VERSION=2.3.4-rc.1"])
+        self.assertEqual(module["sources"][0], {"type": "dir", "path": str(self.root),
+                                                 "skip": [".git", "build", "dist"]})
+        self.assertTrue(module["run-tests"])
+        self.assertEqual(module["test-commands"], self.manifest["modules"][-1]["test-commands"])
+        self.assertTrue((self.output / "lanbridge-2.3.4-rc.1-linux-x86_64.flatpak").is_file())
+
+    def test_release_versions_are_validated_before_building(self):
+        for index, version in enumerate(("", "1.2", "v1.2.3", "01.2.3", "1.02.3", "1.2.03", "1.2.3-01",
+                                         "1.2.3-rc.01", "1.2.3-rc..1", "1.2.3-", "1.2.3+build", "../1.2.3",
+                                         "1.2.3;false", "1.2.3\n2.0.0")):
+            with self.subTest(version=version):
+                self.log.unlink(missing_ok=True)
+                result = self.run_build(self.directory / f"invalid-output-{index}", LANBRIDGE_VERSION=version)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(any(call["tool"] == "flatpak-builder" for call in self.commands()))
+
+    def test_manifest_failure_prevents_release_bundle_export(self):
+        result = self.run_build(LANBRIDGE_VERSION="2.3.4", LANBRIDGE_STUB_SHOW_EXIT="41")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(call["tool"] == "flatpak" and call["args"][0] == "build-bundle"
+                             for call in self.commands()))
+
+    def test_release_existing_bundle_is_preserved_before_manifest_generation(self):
+        self.output.mkdir()
+        bundle = self.output / "lanbridge-2.3.4-linux-x86_64.flatpak"
+        bundle.write_bytes(b"previous release")
+        result = self.run_build(LANBRIDGE_VERSION="2.3.4")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(bundle.read_bytes(), b"previous release")
+        self.assertFalse(any(call["tool"] == "flatpak-builder" for call in self.commands()))
+
+    def test_unexpected_release_manifest_is_rejected(self):
+        self.manifest["modules"][-1]["name"] = "other-app"
+        result = self.run_build(LANBRIDGE_VERSION="2.3.4", LANBRIDGE_STUB_MANIFEST=json.dumps(self.manifest))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(call["tool"] == "flatpak-builder" and call["args"][0] == "--user"
+                             for call in self.commands()))
 
     def test_failed_bundle_export_does_not_report_success(self):
         result = self.run_build(LANBRIDGE_STUB_BUNDLE_EXIT="43")

@@ -6,13 +6,28 @@ if [[ $(uname -s) != Darwin || $(uname -m) != arm64 ]]; then
   printf '请在 Apple Silicon Mac 本机运行。\n' >&2
   exit 1
 fi
+task_version=${LANBRIDGE_VERSION-1.27.0}
+task_version_pattern='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+if [[ ! $task_version =~ $task_version_pattern ]]; then
+  printf '版本格式无效：请使用 1.27.0 或 1.28.0-rc.1 等版本号。\n' >&2
+  exit 2
+fi
+if [[ $task_version == *-* ]]; then
+  IFS='.' read -r -a task_prerelease_parts <<< "${task_version#*-}"
+  for task_part in "${task_prerelease_parts[@]}"; do
+    if [[ $task_part =~ ^[0-9]+$ && $task_part == 0* && $task_part != 0 ]]; then
+      printf '版本格式无效：预发布版本中的数字不能有前导零。\n' >&2
+      exit 2
+    fi
+  done
+fi
 task_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 task_build=${1:-"$task_root/build/lanbridge-macos"}
 task_output=${2:-"$task_root/dist/macos"}
 mkdir -p -- "$task_build" "$task_output"
 task_build=$(cd -- "$task_build" && pwd -P)
 task_output=$(cd -- "$task_output" && pwd -P)
-task_dmg="$task_output/lanbridge-1.27.0-macos-arm64.dmg"
+task_dmg="$task_output/lanbridge-$task_version-macos-arm64.dmg"
 # Refuse before rebuilding or replacing the app paired with an existing image.
 if [[ -e $task_dmg ]]; then
   printf '已存在镜像；请先移动它或选择新的输出目录：%s\n' "$task_dmg" >&2
@@ -31,9 +46,9 @@ if command -v brew >/dev/null 2>&1; then
 fi
 cmake -S "$task_root" -B "$task_build" -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_OSX_ARCHITECTURES=arm64 -DBUILD_TESTS=ON -DSKIP_BUILD_TESTS=ON \
-  -DBUILD_OSX_BUNDLE=ON -DBUILD_INSTALLER=ON "${task_cmake_args[@]}"
-cmake --build "$task_build" --parallel "$(sysctl -n hw.ncpu)"
-ctest --test-dir "$task_build/src/unittests" -LE interactive --output-on-failure
+  -DBUILD_OSX_BUNDLE=ON -DBUILD_INSTALLER=ON "-DLANBRIDGE_VERSION=$task_version" "${task_cmake_args[@]}"
+cmake --build "$task_build" --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-$(sysctl -n hw.ncpu)}"
+ctest --test-dir "$task_build/src/unittests" -LE interactive --output-on-failure --no-tests=error
 cmake --install "$task_build" --prefix "$task_output"
 /usr/bin/python3 "$task_root/deploy/lanbridge/verify-macos-bundle.py" "$task_output/LanBridge.app" \
   --report "$task_root/build/verification/bundle-audit.json"

@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: (C) 2026 LanBridge contributors
+# SPDX-License-Identifier: MIT
+
+function(lanbridge_parse_version version major_out minor_out patch_out)
+  if(NOT "${version}" MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-([0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*))?$")
+    message(FATAL_ERROR "LANBRIDGE_VERSION must be X.Y.Z with an optional SemVer prerelease: '${version}'")
+  endif()
+  set(major "${CMAKE_MATCH_1}")
+  set(minor "${CMAKE_MATCH_2}")
+  set(patch "${CMAKE_MATCH_3}")
+  string(REPLACE "." ";" prerelease_parts "${CMAKE_MATCH_5}")
+  foreach(part IN LISTS prerelease_parts)
+    if("${part}" MATCHES "^0[0-9]+$")
+      message(FATAL_ERROR "LANBRIDGE_VERSION prerelease numbers cannot have leading zeros: '${version}'")
+    endif()
+  endforeach()
+  set(${major_out} "${major}" PARENT_SCOPE)
+  set(${minor_out} "${minor}" PARENT_SCOPE)
+  set(${patch_out} "${patch}" PARENT_SCOPE)
+endfunction()

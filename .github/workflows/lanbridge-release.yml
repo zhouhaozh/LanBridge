@@ -1,0 +1,222 @@
+# SPDX-FileCopyrightText: (C) 2026 LanBridge contributors
+# SPDX-License-Identifier: MIT
+
+name: LanBridge Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 演练版本号（不含 v，例如 1.27.1-rc.1；仅打包，不发布）
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    name: 校验版本与发布工具
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      commit: ${{ steps.version.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 校验版本标签和源码
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || format('v{0}', inputs.version) }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          {
+            python3 deploy/lanbridge/release.py version "$RELEASE_TAG"
+            echo "tag=$RELEASE_TAG"
+            echo "commit=$(git rev-parse HEAD)"
+          } >> "$GITHUB_OUTPUT"
+      - name: 运行打包与发布工具回归测试
+        run: python3 -m unittest discover -s deploy/lanbridge/tests -p 'test_*.py' -v
+
+  flatpak:
+    name: Linux Flatpak x86_64
+    needs: validate
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.11
+      options: --privileged
+    timeout-minutes: 60
+    env:
+      LANBRIDGE_VERSION: ${{ needs.validate.outputs.version }}
+      LC_ALL: C.UTF-8
+      PYTHONUNBUFFERED: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 检查 Flatpak 构建环境
+        run: |
+          flatpak --version
+          flatpak-builder --version
+          flatpak info --show-commit org.kde.Platform//6.11
+          flatpak info --show-commit org.kde.Sdk//6.11
+      - name: 从源码构建、测试并导出 Flatpak
+        run: |
+          mkdir -p build/release-logs
+          bash deploy/lanbridge/build-flatpak.sh dist/linux \
+            2>&1 | tee build/release-logs/flatpak.log
+      - name: 校验仓库和 Platform 运行时加载
+        run: |
+          ostree --repo=dist/linux/repo fsck
+          test -f dist/linux/build/metadata
+          test ! -e dist/linux/build/usr
+          for task_binary in deskflow deskflow-core; do
+            flatpak build --runtime --readonly --env=QT_QPA_PLATFORM=offscreen \
+              dist/linux/build "/app/bin/$task_binary" --version \
+              2>&1 | tee "build/release-logs/$task_binary-version.log"
+            if [[ "$task_binary" == "deskflow" ]]; then
+              grep -Fx -- "LanBridge: $LANBRIDGE_VERSION" "build/release-logs/$task_binary-version.log"
+            else
+              grep -F -- "deskflow-core v$LANBRIDGE_VERSION, protocol v" \
+                "build/release-logs/$task_binary-version.log"
+            fi
+          done
+          test -s "dist/linux/lanbridge-$LANBRIDGE_VERSION-linux-x86_64.flatpak"
+      - name: 保存 Flatpak 安装包
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/linux/lanbridge-${{ needs.validate.outputs.version }}-linux-x86_64.flatpak
+      - name: 保存 Linux 打包日志
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-logs-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: build/release-logs/
+
+  dmg:
+    name: macOS DMG arm64
+    needs: validate
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      LANBRIDGE_VERSION: ${{ needs.validate.outputs.version }}
+      CMAKE_BUILD_PARALLEL_LEVEL: "2"
+      QT_QPA_PLATFORM: offscreen
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 安装 macOS 构建依赖
+        run: brew install cmake ninja qtbase qttools qttranslations openssl@3
+      - name: 构建、测试并生成 DMG
+        run: |
+          mkdir -p build/release-logs
+          bash deploy/lanbridge/build-macos.sh build/release-macos dist/macos \
+            2>&1 | tee build/release-logs/macos.log
+      - name: 只读挂载并核对 DMG 内容
+        run: |
+          task_mount=$(mktemp -d "$RUNNER_TEMP/lanbridge-dmg.XXXXXX")
+          trap 'hdiutil detach "$task_mount" >/dev/null 2>&1 || true; rmdir "$task_mount"' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$task_mount" \
+            "dist/macos/lanbridge-$LANBRIDGE_VERSION-macos-arm64.dmg"
+          codesign --verify --deep --strict "$task_mount/LanBridge.app"
+          cmp dist/macos/LanBridge.app/Contents/MacOS/deskflow-core \
+            "$task_mount/LanBridge.app/Contents/MacOS/deskflow-core"
+          python3 - "$task_mount/LanBridge.app/Contents/Info.plist" <<'PY'
+          import os, plistlib, sys
+          with open(sys.argv[1], "rb") as source:
+              info = plistlib.load(source)
+          expected = os.environ["LANBRIDGE_VERSION"].split("-", 1)[0]
+          assert info["CFBundleIdentifier"] == "org.lanbridge.LanBridge"
+          assert info["CFBundleShortVersionString"] == expected
+          PY
+      - name: 保存 DMG 安装包
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/macos/lanbridge-${{ needs.validate.outputs.version }}-macos-arm64.dmg
+      - name: 保存 macOS 打包日志与依赖审计
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-logs-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            build/release-logs/
+            build/verification/bundle-audit.json
+            build/release-macos/src/unittests/Testing/Temporary/LastTest.log
+
+  publish:
+    name: 汇总安装包与发布
+    needs: [validate, flatpak, dmg]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-linux
+          path: dist/release
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-macos
+          path: dist/release
+      - name: 生成校验清单与中文发布说明
+        run: |
+          python3 deploy/lanbridge/release.py prepare \
+            --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" \
+            --repo "$GITHUB_REPOSITORY" --assets dist/release
+          cat dist/release/NOTES.md >> "$GITHUB_STEP_SUMMARY"
+      - name: 保存本次演练或发布的完整交付文件
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-delivery-${{ github.run_attempt }}
+          retention-days: 7
+          if-no-files-found: error
+          path: dist/release/
+      - name: 发布版本标签对应的 GitHub Release
+        if: github.event_name == 'push'
+        run: |
+          python3 deploy/lanbridge/release.py prepare \
+            --tag "$RELEASE_TAG" --commit "$RELEASE_COMMIT" \
+            --repo "$GITHUB_REPOSITORY" --assets dist/release --publish

@@ -4,7 +4,7 @@ LanBridge 是一款局域网键盘、鼠标与剪贴板共享工具，面向 **U
 
 本项目基于 **Deskflow v1.27.0**（上游提交 `081f6478e654a112168879e67a41ce7d7e4ae3af`）进行定制开发，保留上游版权、许可证和核心程序命名。应用显示名称为 **LanBridge**，应用标识为 `org.lanbridge.LanBridge`；Linux GUI 和核心程序仍分别使用 `deskflow`、`deskflow-core`。
 
-当前仓库保存的是基于 1.27.0 的开发版本。构建脚本中的安装包版本仍为 `1.27.0`，不代表已经发布独立的正式版本；自动化测试结果也不能替代真实双机验收。
+当前仓库基于 1.27.0 定制开发。未指定版本时，本地打包默认使用 `1.27.0`；自动发布会将版本标签同步到安装包名称、应用版本及安装元数据。自动化测试结果不能替代真实双机验收。
 
 ## 主要功能
 
@@ -122,6 +122,39 @@ ctest --test-dir build/dev/src/unittests -LE interactive --output-on-failure --n
 在主窗口启用“登录后启动 LanBridge”。Mac 出现“等待批准”时，前往“系统设置 → 通用 → 登录项”允许；Linux 需要 Background portal 返回自启授权。Linux 界面显示的“上次系统确认”不等于实时读取系统自启状态，变更权限后应重新授权并通过重新登录验证。
 
 只有系统缺少 Background portal 接口时，才使用 [Linux 自启辅助脚本](deploy/lanbridge/login-startup-linux.sh)。登录自启与“启动后开始共享”是两项独立设置。
+
+## 版本打包与发布
+
+[LanBridge Release](https://github.com/zhouhaozh/LanBridge/actions/workflows/lanbridge-release.yml) 在推送 `vX.Y.Z` 标签时自动生成 Linux x86_64 Flatpak 和 macOS arm64 DMG，全部构建、测试和产物检查通过后发布至 [GitHub Releases](https://github.com/zhouhaozh/LanBridge/releases)。标签必须指向 `main` 已包含的提交。
+
+选择未使用的版本号，例如：
+
+```bash
+git switch main
+git pull --ff-only
+git tag -a v1.27.1 -m "LanBridge 1.27.1"
+git push origin v1.27.1
+```
+
+`v1.27.1-rc.1`、`v1.27.1-beta.1` 等标签会标记为预发布，正式版本会设为 Latest。版本由三个不带前导零的数字组成，可附加点分隔的预发布标识；不接受 `+` 构建元数据。已有正式发布不会被自动覆盖；上传失败时保留草稿，修复后可以重新运行失败任务。
+
+每个 Release 包含：
+
+- `lanbridge-<版本>-linux-x86_64.flatpak`
+- `lanbridge-<版本>-macos-arm64.dmg`
+- `SHA256SUMS` 与记录源码提交、文件大小及哈希的 `RELEASE-MANIFEST.json`
+
+Linux 包内含应用，安装所需 KDE Platform 6.11 运行时仍需联网获取；这不是前文的完整离线安装器。macOS DMG 采用本地签名，未做 Developer ID 公证。打包会检查实际 Platform 运行时加载、Mac 依赖与签名、只读挂载后的 DMG 内容。
+
+可从 Actions 页面手动运行打包演练，输入不含 `v` 的版本号，例如 `1.27.1-rc.1`。演练生成同样的安装包、校验清单和中文发布说明，交付文件与诊断日志保存 7 天，不创建版本标签或 GitHub Release。发布流程使用仓库内置 `GITHUB_TOKEN`，无需个人访问令牌；源码与构建任务只有读取权限，发布任务取得写入权限。
+
+本地也可指定相同版本打包：
+
+```bash
+LANBRIDGE_VERSION=1.27.1 bash deploy/lanbridge/build-macos.sh
+# 在 Linux 执行：
+LANBRIDGE_VERSION=1.27.1 bash deploy/lanbridge/build-flatpak.sh
+```
 
 ## 测试与验证
 
