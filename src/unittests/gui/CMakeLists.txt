@@ -13,6 +13,13 @@ create_test(
 
 if(APPLE)
   create_test(
+    NAME MainWindowLifecycleTests
+    DEPENDS gui
+    SOURCE MainWindowLifecycleTests.cpp
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/src/lib/gui"
+  )
+
+  create_test(
     NAME StartupManagerMacTests
     DEPENDS gui
     SOURCE StartupManagerMacTests.mm

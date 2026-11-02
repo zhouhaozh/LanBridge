@@ -117,6 +117,8 @@ ctest --test-dir build/dev/src/unittests -LE interactive --output-on-failure --n
 
 如 Mac 接收进程异常退出并提示恢复，请先在 Mac 本机恢复键鼠状态，再按界面提示确认。重连后需要主动再次跨屏。
 
+在 Mac 上，点击红色关闭按钮只隐藏主窗口，后台共享继续运行，Dock 图标保留。从顶部菜单栏图标的菜单选择“打开 LanBridge”可还原窗口；选择“退出”、按 `Command+Q` 或在 Dock 菜单选择“退出”，才会停止共享并结束程序。Linux 的窗口关闭行为仍遵循设置中的退出或后台运行选项。
+
 ### 登录自启
 
 在主窗口启用“登录后启动 LanBridge”。Mac 出现“等待批准”时，前往“系统设置 → 通用 → 登录项”允许；Linux 需要 Background portal 返回自启授权。Linux 界面显示的“上次系统确认”不等于实时读取系统自启状态，变更权限后应重新授权并通过重新登录验证。

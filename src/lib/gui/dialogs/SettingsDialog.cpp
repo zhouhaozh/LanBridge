@@ -32,6 +32,8 @@ SettingsDialog::SettingsDialog(QWidget *parent, const ServerConfig &serverConfig
 {
 
   ui->setupUi(this);
+  if (deskflow::platform::isMac())
+    ui->formLayout_2->setRowVisible(ui->widget_2, false);
   ui->groupSecurity->setCheckable(false);
   layout()->addWidget(m_buttonBox);
   ui->tabWidget->setCurrentIndex(0);

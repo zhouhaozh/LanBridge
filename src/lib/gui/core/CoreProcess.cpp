@@ -22,10 +22,13 @@
 #endif
 
 #include <QCoreApplication>
+#include <QDeadlineTimer>
 #include <QDir>
+#include <QEventLoop>
 #include <QFile>
 #include <QMetaEnum>
 #include <QMutexLocker>
+#include <QPointer>
 #include <QRegularExpression>
 
 namespace deskflow::gui {
@@ -140,12 +143,16 @@ void CoreProcess::onProcessReadyReadStandardError()
 
 void CoreProcess::daemonIpcClientConnected()
 {
+  if (m_shuttingDown)
+    return;
   applyLogLevel();
   m_daemonIpcClient->requestLogPath();
 }
 
 void CoreProcess::checkExistingProcess()
 {
+  if (m_shuttingDown)
+    return;
   qInfo("checking existing core");
 
   auto *client = new ipc::CoreIpcClient(this);
@@ -153,13 +160,19 @@ void CoreProcess::checkExistingProcess()
     qInfo("existing core has matching version, leaving it running");
     client->deleteLater();
   });
-  connect(client, &ipc::CoreIpcClient::versionMismatch, this, [client] {
+  connect(client, &ipc::CoreIpcClient::versionMismatch, this, [this, client] {
+    if (m_shuttingDown) {
+      client->deleteLater();
+      return;
+    }
     qInfo("existing core has mismatched version, asking it to stop");
     client->sendStop();
   });
   connect(client, &ipc::CoreIpcClient::serverShutdown, this, [this, client] {
     qInfo("existing core stopped successfully");
     client->deleteLater();
+    if (m_shuttingDown)
+      return;
     setProcessState(ProcessState::RetryPending);
     m_retryTimer.setSingleShot(true);
     m_retryTimer.start(kRetryDelay);
@@ -178,6 +191,11 @@ void CoreProcess::onProcessFinished(int exitCode, QProcess::ExitStatus)
 
   if (m_retryTimer.isActive()) {
     m_retryTimer.stop();
+  }
+
+  if (m_shuttingDown) {
+    setProcessState(Stopped);
+    return;
   }
 
 #ifdef Q_OS_MACOS
@@ -262,6 +280,8 @@ void CoreProcess::startProcessFromDaemon()
   qInfo("sending start to daemon (config file: %s)", qPrintable(configFile));
 
   auto sendStart = [this, configFile] {
+    if (m_shuttingDown)
+      return;
     m_daemonIpcClient->sendConfigFile(configFile);
     m_daemonIpcClient->sendStartProcess();
     setProcessState(ProcessState::Started);
@@ -285,8 +305,8 @@ void CoreProcess::stopForegroundProcess()
     return;
   }
 
-  if (!m_process) {
-    qCritical("not stopping core desktop process, no process to stop");
+  if (!m_process || m_process->state() == QProcess::NotRunning) {
+    setProcessState(ProcessState::Stopped);
     return;
   }
 
@@ -310,14 +330,14 @@ void CoreProcess::stopForegroundProcess()
         m_coreIpcClient = nullptr;
       }
 
-      if (m_process && m_process->state() == QProcess::ProcessState::Running) {
+      if (m_process && m_process->state() != QProcess::ProcessState::NotRunning) {
         m_process->terminate();
       }
     });
     return;
   }
 
-  if (m_process->state() == QProcess::ProcessState::Running) {
+  if (m_process->state() != QProcess::ProcessState::NotRunning) {
     qDebug("process is running, terminating");
     m_process->terminate();
   } else {
@@ -385,6 +405,10 @@ void CoreProcess::handleLogLines(const QString &text)
 
 void CoreProcess::start(std::optional<ProcessMode> processModeOption)
 {
+  if (m_shuttingDown) {
+    qDebug("not starting core process, application shutdown requested");
+    return;
+  }
   if (m_processState == ProcessState::Started) {
     qCritical("not starting core process, already started");
     return;
@@ -419,12 +443,16 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
   qInfo().noquote() << QString("starting %1 process (%2 mode)").arg(coreMode, processModeToString(processMode));
 
   setProcessState(ProcessState::Starting);
+  if (m_shuttingDown)
+    return;
 
 #ifdef Q_OS_MACOS
   requestOSXNotificationPermission();
 #endif
 
   setConnectionState(ConnectionState::Connecting);
+  if (m_shuttingDown)
+    return;
 
   if (processMode == ProcessMode::Desktop) {
     m_process = new QProcess(this);
@@ -525,6 +553,7 @@ void CoreProcess::start(std::optional<ProcessMode> processModeOption)
 void CoreProcess::stop(std::optional<ProcessMode> processModeOption)
 {
   QMutexLocker locker(&m_processMutex);
+  m_retryTimer.stop();
 
   const auto currentMode = Settings::value(Settings::Core::ProcessMode).value<ProcessMode>();
   const auto processMode = processModeOption.value_or(currentMode);
@@ -537,10 +566,12 @@ void CoreProcess::stop(std::optional<ProcessMode> processModeOption)
     m_coreIpcClient = nullptr;
   }
 
-  if (m_processState == ProcessState::Starting) {
+  if (processMode == ProcessMode::Desktop && (!m_process || m_process->state() == QProcess::NotRunning)) {
+    setProcessState(ProcessState::Stopped);
+  } else if (m_processState == ProcessState::Starting && processMode != ProcessMode::Desktop) {
     qDebug("core process is starting, cancelling");
     setProcessState(ProcessState::Stopped);
-  } else if (m_processState != ProcessState::Stopped) {
+  } else if (m_processState != ProcessState::Stopped || processMode == ProcessMode::Desktop) {
     setProcessState(ProcessState::Stopping);
 
     if (processMode == ProcessMode::Service) {
@@ -558,6 +589,8 @@ void CoreProcess::stop(std::optional<ProcessMode> processModeOption)
 
 void CoreProcess::restart()
 {
+  if (m_shuttingDown)
+    return;
   qDebug("restarting core process");
 
   const auto processMode = Settings::value(Settings::Core::ProcessMode).value<ProcessMode>();
@@ -598,12 +631,55 @@ void CoreProcess::restart()
 void CoreProcess::cleanup()
 {
   qInfo("cleaning up core process");
+  shutdown();
+}
 
-  const auto isDesktop = Settings::value(Settings::Core::ProcessMode).value<ProcessMode>() == ProcessMode::Desktop;
-  const auto isRunning = m_processState == ProcessState::Started;
-  if (isDesktop && isRunning) {
-    stop();
+bool CoreProcess::shutdown(int timeoutMs)
+{
+  if (m_shuttingDown)
+    return m_shutdownResult.value_or(false);
+
+  m_shuttingDown = true;
+  m_retryTimer.stop();
+  QDeadlineTimer deadline(qMax(0, timeoutMs));
+  QPointer<QProcess> process = m_process;
+  bool stopped = true;
+  if (process && process->state() != QProcess::NotRunning) {
+    // Only this owned desktop child is stopped. Service mode keeps the
+    // system-managed core running when its GUI exits.
+    // A quit request can be delivered reentrantly while start() owns the
+    // process mutex. The GUI-thread shutdown must not wait on that mutex.
+    setProcessState(ProcessState::Stopping);
+    stopForegroundProcess();
+    while (process && process->state() != QProcess::NotRunning && !deadline.hasExpired()) {
+      // aboutToQuit may already have ended the application event loop. Pump
+      // IPC and timers explicitly so graceful stop and its fallback can finish.
+      const auto remaining = qMin<qint64>(20, deadline.remainingTime());
+      if (remaining <= 0)
+        break;
+      QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, static_cast<int>(remaining));
+      if (process && process->state() != QProcess::NotRunning && !deadline.hasExpired())
+        process->waitForFinished(static_cast<int>(qMin<qint64>(20, deadline.remainingTime())));
+    }
+    const bool finished = process && process->state() == QProcess::NotRunning;
+    if (!finished && process) {
+      qWarning("core shutdown timed out, killing owned desktop process; recovery marker is preserved");
+      process->kill();
+      process->waitForFinished(1000);
+    }
+    stopped = finished && process->exitStatus() == QProcess::NormalExit && process->exitCode() == s_exitSuccess;
   }
+
+  m_retryTimer.stop();
+  if (m_coreIpcClient) {
+    m_coreIpcClient->disconnectFromServer();
+    m_coreIpcClient->deleteLater();
+    m_coreIpcClient = nullptr;
+  }
+  setConnectionState(ConnectionState::Disconnected);
+  setProcessState(ProcessState::Stopped);
+  m_shutdownResult = stopped;
+  return stopped;
 }
 
 QPair<bool, QString> CoreProcess::persistServerConfig() const
@@ -650,6 +726,8 @@ void CoreProcess::setProcessState(ProcessState state)
 
 void CoreProcess::onCoreIpcMessageReceived(const QString &command, const QString &args)
 {
+  if (m_shuttingDown)
+    return;
   if (command == "connectionState") {
     const auto metaEnum = QMetaEnum::fromType<ConnectionState>();
     bool ok = false;
@@ -751,6 +829,8 @@ void CoreProcess::clearSettings()
 
 void CoreProcess::retryDaemon()
 {
+  if (m_shuttingDown)
+    return;
   m_daemonIpcClient->connectToServer();
 }
 

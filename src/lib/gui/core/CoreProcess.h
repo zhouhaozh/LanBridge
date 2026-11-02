@@ -17,6 +17,8 @@
 #include <QProcess>
 #include <QTimer>
 
+class CoreProcessTests;
+
 namespace deskflow::gui {
 
 namespace ipc {
@@ -45,6 +47,7 @@ public:
   void stop(std::optional<ProcessMode> processMode = std::nullopt);
   void restart();
   void cleanup();
+  bool shutdown(int timeoutMs = 3000);
   void applyLogLevel();
   void clearSettings();
   void retryDaemon();
@@ -104,6 +107,8 @@ private Q_SLOTS:
   void daemonIpcClientConnected();
 
 private:
+  friend class ::CoreProcessTests;
+
   void startForegroundProcess(const QStringList &args);
   void startProcessFromDaemon();
   void stopForegroundProcess();
@@ -135,6 +140,8 @@ private:
   FileTail *m_daemonFileTail = nullptr;
   QProcess *m_process = nullptr;
   QString m_appPath;
+  bool m_shuttingDown = false;
+  std::optional<bool> m_shutdownResult;
 };
 
 } // namespace deskflow::gui

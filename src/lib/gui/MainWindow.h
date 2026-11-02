@@ -130,6 +130,9 @@ private:
   void handleMissingKeyboardLayouts(const QString &layouts);
   void closeEvent(QCloseEvent *event) override;
   bool maybeHideToTray();
+#ifdef Q_OS_MACOS
+  void prepareToQuit();
+#endif
   void secureSocket(bool secureSocket);
   void connectSlots();
   void handleLogLine(const QString &line);
@@ -183,6 +186,10 @@ private:
   VersionChecker m_versionChecker;
   bool m_secureSocket = false;
   bool m_saveOnExit = true;
+#ifdef Q_OS_MACOS
+  bool m_quitRequested = false;
+  bool m_quitPrepared = false;
+#endif
   bool m_clientErrorVisible = false;
   ServerConfig m_serverConfig;
   deskflow::gui::CoreProcess m_coreProcess;

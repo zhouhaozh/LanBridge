@@ -106,6 +106,9 @@ MainWindow::MainWindow()
 
   m_actionMinimize->setIcon(QIcon::fromTheme(QStringLiteral("window-minimize-pip")));
   m_actionRestore->setIcon(QIcon::fromTheme(QStringLiteral("window-restore-pip")));
+  m_actionRestore->setObjectName(QStringLiteral("actionRestore"));
+  m_actionQuit->setObjectName(QStringLiteral("actionQuit"));
+  m_actionTrayQuit->setObjectName(QStringLiteral("actionTrayQuit"));
 
   if (!deskflow::platform::isWindows()) {
     m_actionQuit->setShortcut(QKeySequence::Quit);
@@ -173,8 +176,9 @@ MainWindow::MainWindow()
   restoreWindow();
 
 #ifdef Q_OS_MACOS
-  // Route native quits (Cmd+Q / Apple menu Quit / Dock "Quit") to the usual close-to-tray decision instead.
-  installQuitHandler([this] { return !maybeHideToTray(); });
+  qApp->setQuitOnLastWindowClosed(false);
+  qApp->installEventFilter(this);
+  connect(qApp, &QCoreApplication::aboutToQuit, this, &MainWindow::prepareToQuit);
 #endif
 }
 MainWindow::~MainWindow()
@@ -261,8 +265,10 @@ void MainWindow::setupLanBridgeControls()
   m_lanBridgeStatus->setWordWrap(true);
   layout->addWidget(m_lanBridgeStatus);
   auto *hint = new QLabel(
-      QStringLiteral("鼠标越过边缘切换，键盘跟随鼠标。按住鼠标时锁定当前屏幕。\n"
-                     "紧急返回 Linux：Ctrl + Alt + Esc。操作 Mac 时可用 Ctrl+C / Ctrl+V 复制、粘贴。"),
+      QStringLiteral(
+          "鼠标越过边缘切换，键盘跟随鼠标。按住鼠标时锁定当前屏幕。\n"
+          "紧急返回 Linux：Ctrl + Alt + Esc。操作 Mac 时可用 Ctrl+C / Ctrl+V 复制、粘贴。"
+      ),
       panel
   );
   hint->setWordWrap(true);
@@ -548,14 +554,16 @@ void MainWindow::showLanBridgeHelp()
 {
   QMessageBox::information(
       this, QStringLiteral("LanBridge 使用帮助"),
-      QStringLiteral("1. 在 Linux 的 GNOME X11 会话中启动共享；在 Mac 上允许辅助功能权限并连接。\n"
-                     "2. 首次连接请在两台机器上核对 TLS 证书指纹，再确认信任。证书变化会停止共享。\n"
-                     "3. 默认 Linux 在左、Mac 在右；停止共享后可在 Linux 窗口调整位置。\n"
-                     "4. 鼠标越过屏幕边缘切换；按住按钮时保持在当前机器，松开后可跨屏。\n"
-                     "5. Ctrl + Alt + Esc 紧急返回 Linux；中文输入使用当前机器自己的输入法。\n"
-                     "6. Linux 端开启“共享剪贴板”后，可在两台机器间复制、粘贴。操作 Mac 时支持 Ctrl+C / Ctrl+V。\n"
-                     "7. 使用“停止共享”或退出软件结束共享；“重新连接”用于普通连接故障。\n"
-                     "性能诊断需停止共享后启用，重新连接后生效；性能报告只包含耗时与队列统计，不包含按键内容。")
+      QStringLiteral(
+          "1. 在 Linux 的 GNOME X11 会话中启动共享；在 Mac 上允许辅助功能权限并连接。\n"
+          "2. 首次连接请在两台机器上核对 TLS 证书指纹，再确认信任。证书变化会停止共享。\n"
+          "3. 默认 Linux 在左、Mac 在右；停止共享后可在 Linux 窗口调整位置。\n"
+          "4. 鼠标越过屏幕边缘切换；按住按钮时保持在当前机器，松开后可跨屏。\n"
+          "5. Ctrl + Alt + Esc 紧急返回 Linux；中文输入使用当前机器自己的输入法。\n"
+          "6. Linux 端开启“共享剪贴板”后，可在两台机器间复制、粘贴。操作 Mac 时支持 Ctrl+C / Ctrl+V。\n"
+          "7. 使用“停止共享”或退出软件结束共享；“重新连接”用于普通连接故障。\n"
+          "性能诊断需停止共享后启用，重新连接后生效；性能报告只包含耗时与队列统计，不包含按键内容。"
+      )
   );
 }
 
@@ -587,8 +595,13 @@ void MainWindow::connectSlots()
   connect(m_actionAbout, &QAction::triggered, this, &MainWindow::openAboutDialog);
   connect(m_actionMinimize, &QAction::triggered, this, &MainWindow::hide);
 
+#ifdef Q_OS_MACOS
+  connect(m_actionQuit, &QAction::triggered, qApp, &QCoreApplication::quit);
+  connect(m_actionTrayQuit, &QAction::triggered, qApp, &QCoreApplication::quit);
+#else
   connect(m_actionQuit, &QAction::triggered, this, &MainWindow::close);
   connect(m_actionTrayQuit, &QAction::triggered, this, &MainWindow::close);
+#endif
   connect(m_actionRestore, &QAction::triggered, this, &MainWindow::showAndActivate);
   connect(m_actionSettings, &QAction::triggered, this, &MainWindow::openSettings);
   connect(m_actionStartCore, &QAction::triggered, this, &MainWindow::startCore);
@@ -712,6 +725,10 @@ void MainWindow::trayIconActivated(QSystemTrayIcon::ActivationReason reason)
 
 void MainWindow::coreProcessError(CoreProcess::Error error)
 {
+#ifdef Q_OS_MACOS
+  if (m_quitPrepared)
+    return;
+#endif
   if (error == CoreProcess::Error::RecoveryRequired) {
     showAndActivate();
     updateLanBridgeStatus();
@@ -1270,6 +1287,16 @@ bool MainWindow::maybeHideToTray()
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {
+#ifdef Q_OS_MACOS
+  if (!m_quitRequested) {
+    Settings::setValue(Settings::Gui::WindowGeometry, geometry());
+    hide();
+    event->ignore();
+    return;
+  }
+  // Qt's application-level Quit event owns termination after closing windows.
+  event->accept();
+#else
   if (event->spontaneous() && maybeHideToTray()) {
     event->ignore();
     return;
@@ -1287,7 +1314,27 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
   event->accept();
   QApplication::quit();
+#endif
 }
+
+#ifdef Q_OS_MACOS
+void MainWindow::prepareToQuit()
+{
+  if (m_quitPrepared)
+    return;
+  m_quitPrepared = true;
+
+  if (m_saveOnExit) {
+    Settings::setValue(Settings::Gui::WindowGeometry, geometry());
+    Settings::setValue(Settings::Gui::AutoStartCore, m_coreProcess.isStarted());
+  }
+  m_networkMonitor->stopMonitoring();
+  disconnect(&m_coreProcess, nullptr, this, nullptr);
+  disconnect(m_logDock->toggleViewAction(), &QAction::toggled, nullptr, nullptr);
+  if (!m_coreProcess.shutdown())
+    qWarning("core did not shut down cleanly; input recovery state has been preserved");
+}
+#endif
 
 void MainWindow::showFirstConnectedMessage()
 {
@@ -1316,6 +1363,10 @@ void MainWindow::updateStatus()
 
 void MainWindow::coreProcessStateChanged(ProcessState state)
 {
+#ifdef Q_OS_MACOS
+  if (m_quitPrepared)
+    return;
+#endif
   using enum ProcessState;
   if (state == Stopped)
     m_connectedClients.clear();
@@ -1381,15 +1432,13 @@ void MainWindow::updateFingerprintButton()
 
 void MainWindow::hide()
 {
+#ifndef Q_OS_MACOS
   if (!QSystemTrayIcon::isSystemTrayAvailable()) {
     showMinimized();
     return;
   }
-#ifdef Q_OS_MACOS
-  macOSNativeHide();
-#else
-  QMainWindow::hide();
 #endif
+  QMainWindow::hide();
   m_actionRestore->setVisible(true);
   m_actionMinimize->setVisible(false);
 }
@@ -1418,6 +1467,17 @@ void MainWindow::changeEvent(QEvent *e)
 
 bool MainWindow::eventFilter(QObject *obj, QEvent *event)
 {
+#ifdef Q_OS_MACOS
+  if (obj == qApp && event->type() == QEvent::Quit) {
+    m_quitRequested = true;
+    // A different window may veto Quit; a later normal close must still hide.
+    QTimer::singleShot(0, this, [this] {
+      if (!m_quitPrepared)
+        m_quitRequested = false;
+    });
+    return false;
+  }
+#endif
   if (obj != ui->lineEditName || event->type() != QEvent::KeyPress)
     return false;
   if (const auto keyEvent = static_cast<QKeyEvent *>(event); keyEvent->key() != Qt::Key_Escape)
